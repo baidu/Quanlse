@@ -1,3 +1,5 @@
+English | [简体中文](README_CN.md)
+
 ![](https://release-data.cdn.bcebos.com/Quanlse_title_en.png)
 
 [Quanlse (量脉)](https://quanlse.baidu.com) is a cloud-based platform for quantum control developed by the [Institute for Quantum Computing](https://quantum.baidu.com). Quanlse aims to bridge the gap between quantum software and hardware. It provides efficient and professional quantum control solutions via an open-source SDK strengthened by the Quanlse Could Service.
