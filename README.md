@@ -6,8 +6,6 @@ English | [简体中文](README_CN.md)
 
 Quanlse supports the pulse generation and scheduling of arbitrary single-qubit and two-qubit gates. With the help of toolkits in Quanlse, one can also use Quanlse for modeling physical devices, simulating dynamical evolution, and visualizing error analysis. More interestingly, users can achieve pulse-level control of quantum algorithms using Quanlse. Furthermore, Quanlse also supports advanced research and development (R&D) in the field of quantum control.
 
-[TOC]
-
 ## Install
 
 We strongly recommend using [Anaconda](https://www.anaconda.com/) for your R&D environment for the best experience.
