@@ -42,7 +42,7 @@ else:
     quantumHubAddr = 'https://quantum-hub.baidu.com/api'
     quantumBucket = 'quantum-task'
 
-sdkVersion = 'Quanlse 1.0.0'
+sdkVersion = 'Quanlse 1.1.0'
 """
 SDK Version
 

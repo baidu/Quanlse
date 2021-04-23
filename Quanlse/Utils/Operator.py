@@ -15,7 +15,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from math import sqrt
+from math import sqrt, factorial, exp
 import numpy
 
 
@@ -168,9 +168,22 @@ def projector(a: numpy.ndarray, b: numpy.ndarray = None) -> numpy.ndarray:
     :param a: ket operator
     :param b: bra operator
     :return: the outer product of the two operators :math:`|a\rangle` and :math:`(|b\rangle)^{\dagger}`
-    """ 
+    """
     if b is None:
         returnMatrix = numpy.dot(a, dagger(a))
     else:
         returnMatrix = numpy.dot(a, dagger(b))
     return returnMatrix
+
+
+def coherent(alpha: float, n: int) -> numpy.ndarray:
+    r"""
+    Return the state vector of the coherent state:
+    :math:`e^{-\frac{1}{2}|\alpha|^2}\sum_{i=0}^{n-1}\frac{\alpha^i}{\sqrt{n!}}|i\rangle`
+
+    :param alpha: the eigenstate of the annihilation operator.
+    :param n: the highest level truncated.
+
+    :return: the state vector of the coherent state.
+    """
+    return exp(-0.5 * pow(alpha, 2)) * sum([pow(alpha, i) / sqrt(factorial(i)) * basis(n, i) for i in range(n)])

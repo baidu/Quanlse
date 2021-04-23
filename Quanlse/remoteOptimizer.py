@@ -20,7 +20,7 @@ remoteOptimizer
 # limitations under the License.
 
 from Quanlse.Utils.Hamiltonian import toJson, createFromJson
-from Quanlse.QPlatform.Utilities import numpyMatrixToDictMatrix
+from Quanlse.QPlatform.Utilities import numpyMatrixToDictMatrix, dictMatrixToNumpyMatrix
 from Quanlse.QRpc import rpcCall
 
 from typing import Dict, Any, List, Tuple
@@ -156,3 +156,96 @@ def remoteOptimizeISWAP(ham: Dict[str, Any], aBound: Tuple[float, float] = None,
     }
     origin = rpcCall("ISWAP", args, kwargs)
     return createFromJson(origin["qam"]), origin["infidelity"]
+
+
+def remoteOptimize1QubitGRAPE(ham: Dict[str, Any], uGoal: numpy.ndarray,
+                              tg: int = 20, iterate: int = 150,
+                              xyzPulses: List[int] = None)\
+                              -> Tuple[Dict[str, Any], float]:
+    """
+    Optimize a 1-qubit gate using Gradient Ascent Pulse Engineering.
+
+    **Note:**
+
+    Users need to import ``Quanlse.Define`` and set the token by the following code. Token can be acquired from the
+    official website of Quantum Hub: http://quantum-hub.baidu.com.
+
+    .. code-block:: python
+
+            Define.hubToken = '...'
+
+    :param ham: the Hamiltonian dictionary.
+    :param uGoal: the target unitary.
+    :param tg: gate time.
+    :param iterate: max number of iteration.
+    :param xyzPulses: a list of three integers indicating the numbers of
+                Gaussian pulses superposed on x, y, z controls respectively.
+    :return: a tuple containing the return Hamiltonian and infidelity.
+    """
+    args = [toJson(ham), numpyMatrixToDictMatrix(uGoal)]
+    kwargs = {
+        "tg": tg,
+        "iterate": iterate,
+        "xyzPulses": xyzPulses
+    }
+    origin = rpcCall("1QubitGRAPE", args, kwargs)
+    return createFromJson(origin["qam"]), origin["infidelity"]
+
+
+def remoteIonOptimize1Qubit(axial: str, theta: float, tgate: float)\
+                            -> Tuple[Dict[str, Any], float]:
+    """
+    Optimize a superconducting iSWAP gate by Quanlse cloud service.
+
+    **Note:**
+
+    Users need to import ``Quanlse.Define`` and set the token by the following code. Token can be acquired from the
+    official website of Quantum Hub: http://quantum-hub.baidu.com.
+
+    .. code-block:: python
+
+            Define.hubToken = '...'
+
+    :param axial: the rotating axial, 'ionRx' or 'ionRy'.
+    :param theta: the angle of the rotation operation.
+    :param tgate: gate time.
+    :return: the unitary of the evolution.
+    """
+    args = [axial, theta, tgate]
+    kwargs = {}
+    origin = rpcCall("Ion1Qubit", args, kwargs)
+    return createFromJson(origin["qam"]), origin["infidelity"]
+
+
+def remoteIonMS(ionNumber: int, atomMass: int, tgate: float,
+                omega: Tuple[float, float], ionIndex: Tuple[int, int],
+                phononMode: str = 'axial', pulseWave: str = 'squareWave')\
+                -> Tuple[Dict[str, Any], numpy.ndarray]:
+    """
+    Generate the Molmer-Sorensen gate in trapped ions by Quanlse cloud service.
+
+    **Note:**
+
+    Users need to import ``Quanlse.Define`` and set the token by the following code. Token can be acquired from the
+    official website of Quantum Hub: http://quantum-hub.baidu.com.
+
+    .. code-block:: python
+
+            Define.hubToken = '...'
+
+    :param ionNumber: the number of ions.
+    :param atomMass: the atomic mass of the ion.
+    :param tgate: gate time.
+    :param omega: 1-dimensional angular frequency of the potential trap.
+    :param ionIndex: the index of the two ions.
+    :param phononMode: the mode of the phonon oscillation.
+    :param pulseWave: the waveform of the laser.
+    :return: the time sequency of the pulse.
+    """
+    args = [ionNumber, atomMass, tgate, omega, ionIndex]
+    kwargs = {
+        "phononMode": phononMode,
+        "pulseWave": pulseWave,
+    }
+    origin = rpcCall("IonMS", args, kwargs)
+    return origin['result'], dictMatrixToNumpyMatrix(origin["unitary"], complex)

@@ -24,6 +24,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.ticker import FormatStrFormatter, LogFormatter
 from typing import List, Dict, Any, Union
+from Quanlse.Utils.Waveforms import play
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from Quanlse.Utils.Tools import computationalBasisList
@@ -560,3 +561,116 @@ def colorMap():
         ['pink', 'deeppink']
 
     ]
+
+
+def plotIonPosition(ionPos: List[Any]) -> None:
+    """
+    Plot the position of the ion in the equilibrium.
+
+    :param ionPos: the positions of the ions.
+    """
+    plt.figure()
+    plt.scatter(numpy.array(ionPos), numpy.zeros(numpy.size(ionPos)), s=100)
+    plt.title('Ions equilibrium position', fontsize='large', fontweight='bold')
+
+    font2 = {'family': 'Times New Roman',
+             'weight': 'bold',
+             'size': 15,
+             }
+    plt.xlabel(r'Z axial ($\mu$m)', font2)
+    plt.ylabel('XY plane', font2)
+    ax = plt.gca()
+    ax.spines['bottom'].set_linewidth(2)
+    ax.spines['left'].set_linewidth(2)
+    ax.spines['right'].set_linewidth(2)
+    ax.spines['top'].set_linewidth(2)
+    plt.tick_params(labelsize=15)
+    plt.show()
+
+
+def plotSched(waveDataCtrl: Union[Dict[str, Any], List[Dict[str, Any]]],
+              waveDataReadout: Union[Dict[str, Any], List[Dict[str, Any]]] = None, dt: float = 0.2) -> None:
+    """
+    Plot the pulse schedule used in the noisy simulator.
+
+    :param waveDataCtrl: the control pulse sequence.
+    :param waveDataReadout: the readout pulse sequence.
+    :param dt: the sampling time period.
+    """
+
+    if isinstance(waveDataCtrl, Dict):
+        waveDataCtrl = [waveDataCtrl]
+    else:
+        pass
+
+    if waveDataReadout:
+        if isinstance(waveDataReadout, Dict):
+            waveDataReadout = [waveDataReadout]
+        else:
+            pass
+
+        # Check the time sequence of the readout pulse
+        maxNsCtrl = max([waveData['insert_ns'] + waveData['duration_ns'] for waveData in waveDataCtrl])
+        minNsRo = min([waveData['insert_ns'] for waveData in waveDataReadout])
+        assert minNsRo >= maxNsCtrl, 'Applying readout pulse during control sequence is not allowed.'
+
+        sched = numpy.append(waveDataCtrl, waveDataReadout)
+    else:
+        sched = waveDataCtrl
+
+    maxNs = int(numpy.ceil(max([waveData['insert_ns'] + waveData['duration_ns'] for waveData in sched])))
+    maxDt = int(maxNs / dt)
+    xSeq = numpy.zeros(maxDt)
+    ySeq = numpy.zeros(maxDt)
+    roSeq = numpy.zeros(maxDt)
+
+    # Traverse all the time slices.
+    for nowDt in range(0, maxDt):
+        nowNs = nowDt * dt + dt / 2
+    
+        # Traverse all the waveforms
+        for waveData in sched:
+            insertNs = waveData["insert_ns"]
+            endNs = waveData["insert_ns"] + waveData["duration_ns"]
+            if insertNs <= nowNs < endNs:
+                # Calculate the waveforms' amplitudes.
+                waveFunc = waveData["func"]
+                if waveFunc is None:
+                    seq = waveData["sequence"]
+                    realTime = nowNs - waveData["insert_ns"]
+                    if int(realTime / dt) >= len(seq):
+                        currentAmp = seq[-1]
+                    else:
+                        currentAmp = seq[int(realTime / dt)]
+                elif isinstance(waveFunc, str):
+                    currentAmp = play(waveData["func"], nowNs - waveData["insert_ns"], waveData["para"])
+                elif callable(waveFunc):
+                    currentAmp = waveFunc(nowNs - waveData["insert_ns"], waveData["para"])
+                else:
+                    assert False, "Unsupported type of func."
+            
+            if waveData['name'] == 'x':
+                xSeq[nowDt] += currentAmp
+                currentAmp = 0
+            
+            if waveData['name'] == 'y':
+                ySeq[nowDt] += currentAmp
+                currentAmp = 0
+            
+            if waveData['name'] == 'readout':
+                roSeq[nowDt] += currentAmp
+                currentAmp = 0
+            else:
+                currentAmp = 0
+                pass
+
+    ampList = [xSeq, ySeq, roSeq]
+    tList = [numpy.linspace(0, maxNs, len(xSeq)) for _ in range(3)]
+    yLabel = ['Amp (a.u.)' for _ in range(3)]
+    color = ['blue' for _ in range(3)]
+    plotPulse(tList, ampList, xLabel='ns', yLabel=yLabel, title=['x', 'y', 'readout'], color=color)
+
+
+
+
+

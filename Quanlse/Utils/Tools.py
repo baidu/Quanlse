@@ -21,10 +21,10 @@ Tools
 
 import numpy
 import math
-from typing import List
+from typing import List, Union
 
 
-def project(matrix: numpy.ndarray, qubitNum: int, sysLevel: int, toLevel: int) -> numpy.ndarray:
+def project(matrix: numpy.ndarray, qubitNum: int, sysLevel: Union[int, List[int]], toLevel: int) -> numpy.ndarray:
     """
     Project a :math:`d`-level (:math:`d` is an integer) multi-qubit matrix to a lower dimension.
 
@@ -34,31 +34,58 @@ def project(matrix: numpy.ndarray, qubitNum: int, sysLevel: int, toLevel: int) -
     :param toLevel: the target energy level
     :return: uReal in ``toLevel``-dimensional Hilbert space
     """
-    assert toLevel < sysLevel, "The target level should be less than current level."
-    # Initialization
-    tmpM = numpy.zeros((sysLevel, sysLevel), dtype=int)
-    # Construct the single qubit matrix.
-    for d1 in range(toLevel):
-        for d2 in range(toLevel):
-            tmpM[d1, d2] = 1
-    # Construct the tensor product matrix.
-    kronMat = numpy.array([1], dtype=int)
-    for _ in range(qubitNum):
-        kronMat = numpy.kron(kronMat, tmpM)
-    # Output the projected matrix.
-    newMat = numpy.zeros((toLevel ** qubitNum, toLevel ** qubitNum), dtype=complex)
-    toX, toY = 0, 0
-    for x in range(sysLevel ** qubitNum):
-        dropLine = True
-        for y in range(sysLevel ** qubitNum):
-            if kronMat[x, y] == 1:
-                dropLine = False
-                newMat[toX, toY] = matrix[x, y]
-                toY += 1
-        toY = 0
-        if dropLine is False:
-            toX += 1
-    # Return
+    if isinstance(sysLevel, int):
+        assert toLevel < sysLevel, "The target level should be less than current level."
+        # Initialization
+        tmpM = numpy.zeros((sysLevel, sysLevel), dtype=int)
+            
+        # Construct the single qubit matrix.
+        for d1 in range(toLevel):
+            for d2 in range(toLevel):
+                tmpM[d1, d2] = 1
+        # Construct the tensor product matrix.
+        kronMat = numpy.array([1], dtype=int)
+        for _ in range(qubitNum):
+            kronMat = numpy.kron(kronMat, tmpM)
+        # Output the projected matrix.
+        newMat = numpy.zeros((toLevel ** qubitNum, toLevel ** qubitNum), dtype=complex)
+        toX, toY = 0, 0
+        for x in range(sysLevel ** qubitNum):
+            dropLine = True
+            for y in range(sysLevel ** qubitNum):
+                if kronMat[x, y] == 1:
+                    dropLine = False
+                    newMat[toX, toY] = matrix[x, y]
+                    toY += 1
+            toY = 0
+            if dropLine is False:
+                toX += 1
+    if isinstance(sysLevel, list):
+        assert toLevel < min(sysLevel), "The target level should be less than the minimum level of one of the qubit."
+        # Construct the tensor product matrix for this system 
+        kronMat = numpy.array([1], dtype=int)
+        for level in sysLevel:
+            tmpM = numpy.zeros((level, level), dtype=int)
+            for d1 in range(toLevel):
+                for d2 in range(toLevel):
+                    tmpM[d1, d2] = 1
+            kronMat = numpy.kron(kronMat, tmpM)
+        # Initialize the output matrix 
+        newMat = numpy.zeros((toLevel ** qubitNum, toLevel ** qubitNum), dtype=complex)
+        dim = matrix.shape[0]
+        toX, toY = 0, 0
+        for x in range(dim):
+            dropLine = True
+            for y in range(dim):
+                if kronMat[x, y] == 1:
+                    dropLine = False
+                    newMat[toX, toY] = matrix[x, y]
+                    toY += 1
+            toY = 0
+            if dropLine is False:
+                toX += 1
+
+    # Return the output matrix
     return newMat
 
 
@@ -103,6 +130,7 @@ def computationalBasisList(qubitNum: int, sysLevel: int) -> List[str]:
     :param sysLevel: the energy level of the qubits in the system
     :return: the list of strings labeling eigenstates
     """
+    assert isinstance(sysLevel, int), 'The system level can only be an integer.'
     itemCount = sysLevel ** qubitNum
     strList = []
     for index in range(itemCount):
@@ -123,6 +151,7 @@ def generateBasisIndexList(basisStrList: List[str], sysLevel: int) -> List[int]:
     :param sysLevel: the energy level of qubits in the system.
     :return: basis indices list
     """
+    assert isinstance(sysLevel, int), 'The system level can only be an integer.'
     strLen = [len(item) for item in basisStrList]
     assert max(strLen) == min(strLen), "All input digital strings should have same length."
     digLen = max(strLen)

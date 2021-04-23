@@ -22,7 +22,7 @@ from Quanlse.Utils.Waveforms import waveDataToSeq
 from Quanlse.QPlatform.Utilities import dictMatrixToNumpyMatrix
 from Quanlse.QRpc import rpcCall
 
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Union, Tuple, Callable
 
 
 def remoteSimulatorRunHamiltonian(ham: Dict[str, Any], jobList: List[List[Dict[str, Any]]]) -> List[Dict]:
@@ -78,3 +78,37 @@ def remoteSimulatorRunHamiltonian(ham: Dict[str, Any], jobList: List[List[Dict[s
     for result in origin["resultBatch"]:
         result["unitary"] = dictMatrixToNumpyMatrix(result["unitary"], complex)
     return origin["resultBatch"]
+
+
+def remoteNoisySimulator(waveDataCtrl: Union[Dict[str, Any], List[Dict[str, Any]]],
+                         anharm: float = -2.1815, dephSigma: float = 0,
+                         ampGamma: float = 0, kappa: float = 0.04,
+                         waveDataReadout: Union[Dict[str, Any], List[Dict[str, Any]]]
+                         = None, shots: int = 512) -> Dict[str, Any]:
+    """
+    Noisy simulator includes dephasing noise and amplitude noise
+    with optional readout simulation.
+
+    :param waveDataCtrl: A dictionary of waveData created by function 'addPulse()'.
+    :param anharm: The anharmonicity of the qubit.
+    :param dephSigma: Dephasing noise.
+    :param ampGamma: Amplitude noise.
+    :param kappa: The reasonator-environment interaction rate.
+    :param waveDataReadout: A dictionary of waveData created by function 'addPulse()'.
+    :param shots: The number of execution of the task.
+    :return: A dictionary of the result, the keys are 'prob0', 'prob1', 'iq_data', 'counts'.
+    """
+
+    args = []
+    kwargs = {
+        "waveDataCtrl": waveDataToSeq(waveDataCtrl),
+        "anharm": anharm,
+        "dephSigma": dephSigma,
+        "ampGamma": ampGamma,
+        "kappa": kappa,
+        "waveDataReadout": waveDataReadout,
+        "shots": shots
+    }
+
+    origin = rpcCall("noisySimulator", args, kwargs)
+    return origin["result"]

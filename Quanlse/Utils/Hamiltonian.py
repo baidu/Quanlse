@@ -35,7 +35,7 @@ from Quanlse.Utils import Operator
 from Quanlse.Utils.Plot import plotPulse
 
 
-def createHam(title: str, dt: float, qubitNum: int, sysLevel: int) -> Dict[str, Any]:
+def createHam(title: str, dt: float, qubitNum: int, sysLevel: Union[int, List[int]]) -> Dict[str, Any]:
     """
     Create a new empty Hamiltonian dictionary with specified system level and qubit number.
 
@@ -46,6 +46,7 @@ def createHam(title: str, dt: float, qubitNum: int, sysLevel: int) -> Dict[str, 
     :param sysLevel: the dimension of the Hilbert space of a single qubit
     :return: the Hamiltonian dictionary
     """
+    
     ham = {"file": {
         "title": title
     }, "circuit": {
@@ -57,8 +58,13 @@ def createHam(title: str, dt: float, qubitNum: int, sysLevel: int) -> Dict[str, 
     }, "drift": {}, "control": {}}
 
     assert qubitNum >= 1, "Qubit number should be greater than 0."
-    assert sysLevel >= 2, "System should be greater than 1."
-
+    
+    if isinstance(sysLevel, int):
+        assert sysLevel >= 2, "System level should be greater than 1."
+    elif isinstance(sysLevel, list):
+        assert min(sysLevel) >= 2, "One of the subsystem has energy level lower than 2."
+    else:
+        assert False, "The data type of the sysLevel should be an integer or a list of integers" 
     # Initialize cache
     clearCache(ham)
 
@@ -111,7 +117,12 @@ def addDrift(ham: Dict[str, Any], name: str, onQubits: Union[int, List[int]] = N
 
     if onQubits is None:
         # Input the complete matrices directly.
-        dim = sysLevel ** qubitNum
+        if isinstance(sysLevel, int):
+            dim = sysLevel ** qubitNum
+        elif isinstance(sysLevel, list):
+            dim = 1
+            for i in sysLevel:
+                dim = dim * i
         assert numpy.shape(matrices) == (dim, dim), "Dimension does not match."
         matrices = [matrices]
     else:
@@ -169,10 +180,15 @@ def addCoupling(ham: Dict[str, Any], name: str, onQubits: Union[int, List[int]],
     """
     assert len(onQubits) == 2, "Coupling term should be defined on two qubits."
     # Obtain the system energy level.
-    d = ham["circuit"]["sys_level"]
-    # Construct matrices.
-    matrices = [Operator.destroy(d), Operator.create(d)]
-    matricesHc = [Operator.create(d), Operator.destroy(d)]
+    if isinstance(ham["circuit"]["sys_level"], int):
+        d = ham["circuit"]["sys_level"]
+        # Construct matrices.
+        matrices = [Operator.destroy(d), Operator.create(d)]
+        matricesHc = [Operator.create(d), Operator.destroy(d)]
+    elif isinstance(ham["circuit"]["sys_level"], list):
+        sysLevel = ham["circuit"]["sys_level"]
+        matrices = [Operator.destroy(sysLevel[onQubits[0]]), Operator.create(sysLevel[onQubits[1]])]
+        matricesHc = [Operator.create(sysLevel[onQubits[0]]), Operator.destroy(sysLevel[onQubits[1]])]
     # Add drift terms
     addDrift(ham, f"{name}", onQubits=onQubits, matrices=matrices, amp=g)
     addDrift(ham, f"{name}(hc)", onQubits=onQubits, matrices=matricesHc, amp=g)
@@ -227,7 +243,12 @@ def addControl(ham: Dict[str, Any], name: str, onQubits: Union[int, List[int]] =
 
     if onQubits is None:
         # Input the complete matrices directly.
-        dim = sysLevel ** qubitNum
+        if isinstance(sysLevel, int):
+            dim = sysLevel ** qubitNum
+        elif isinstance(sysLevel, list):
+            dim = 1
+            for i in sysLevel:
+                dim = dim * i
         assert numpy.shape(matrices) == (dim, dim), "Dimension does not match."
         matrices = [matrices]
     else:
@@ -416,7 +437,7 @@ def addWaveData(ham: Dict[str, Any], waveData: Union[Dict[str, Any], List[Dict[s
 
     if isinstance(waveData, list):
         for wave in waveData:
-            name = wave["name"]
+
             addWave(ham, wave['name'], t0=wave['insert_ns'], t=wave['duration_ns'], f=wave['func'], para=wave['para'])
     elif isinstance(waveData, dict):
         wave = waveData
@@ -619,7 +640,7 @@ def generatePulseSequence(ham: Dict[str, Any], name: Union[str, List[str]]) -> L
 
 
 def generateOperator(onQubits: Union[int, List[int]], matrices: Union[numpy.ndarray, List[numpy.ndarray]],
-                     sysLevel: int, qubitNum: int) -> numpy.ndarray:
+                     sysLevel: Union[int, List[int]], qubitNum: int) -> numpy.ndarray:
     """
     Generate the operator in the complete Hilbert space of the system by taking tensor products.
 
@@ -629,61 +650,115 @@ def generateOperator(onQubits: Union[int, List[int]], matrices: Union[numpy.ndar
     :param qubitNum: the number of qubits in this system
     :return: the matrix form of the operator
     """
-    # We first define the identity matrix to fill un-assigned qubits
-    idMat = numpy.identity(sysLevel, dtype=complex)
-    if isinstance(onQubits, int):
-        assert numpy.size(matrices) == (sysLevel, sysLevel), "Dimension of matrix does not match the system Level."
-        # The operator is on only one qubit.
-        if onQubits == 0:
-            # This operator is on the first qubit.
-            operator = matrices
-            for i in range(1, qubitNum):
-                operator = numpy.kron(operator, idMat)
-        else:
-            # This operator is not on the first qubit.
-            operator = idMat
-            for i in range(1, onQubits):
-                operator = numpy.kron(operator, idMat)
-            operator = numpy.kron(operator, matrices)
-            for i in range(onQubits + 1, qubitNum):
-                operator = numpy.kron(operator, idMat)
-        return operator
-    elif isinstance(onQubits, list):
-        operator = []
-        for i in range(qubitNum):
-            if i == 0:
-                # On the first qubit
-                if i in onQubits:
-                    matrixIndex = onQubits.index(i)
-                    operator = matrices[matrixIndex]
-                    operatorSize = numpy.shape(matrices[matrixIndex])
-                    assert operatorSize == (sysLevel, sysLevel), \
-                        f"Dim of input matrix {operatorSize} does not match with the system level ({sysLevel})."
-                else:
-                    operator = idMat
-            else:
-                # Not on the first qubit
-                if i in onQubits:
-                    matrixIndex = onQubits.index(i)
-                    operatorSize = numpy.shape(matrices[matrixIndex])
-                    assert operatorSize == (sysLevel, sysLevel), \
-                        f"Dim of input matrix {operatorSize} does not match with the system level ({sysLevel})."
-                    operator = numpy.kron(operator, matrices[matrixIndex])
-                else:
+    # Each qubit of the system has the same energy level. 
+    if isinstance(sysLevel, int):
+        # We first define the identity matrix to fill un-assigned qubits
+        idMat = numpy.identity(sysLevel, dtype=complex)
+        if isinstance(onQubits, int):
+            assert numpy.size(matrices) == (sysLevel, sysLevel), "Dimension of matrix does not match the system Level."
+            # The operator is on only one qubit.
+            if onQubits == 0:
+                # This operator is on the first qubit.
+                operator = matrices
+                for i in range(1, qubitNum):
                     operator = numpy.kron(operator, idMat)
-        return operator
-
-    else:
-        assert False, "Variable onQubits should be a list or an int."
+            else:
+                # This operator is not on the first qubit.
+                operator = idMat
+                for i in range(1, onQubits):
+                    operator = numpy.kron(operator, idMat)
+                operator = numpy.kron(operator, matrices)
+                for i in range(onQubits + 1, qubitNum):
+                    operator = numpy.kron(operator, idMat)
+            return operator
+        elif isinstance(onQubits, list):
+            operator = []
+            for i in range(qubitNum):
+                if i == 0:
+                    # On the first qubit
+                    if i in onQubits:
+                        matrixIndex = onQubits.index(i)
+                        operator = matrices[matrixIndex]
+                        operatorSize = numpy.shape(matrices[matrixIndex])
+                        assert operatorSize == (sysLevel, sysLevel), \
+                            f"Dim of input matrix {operatorSize} does not match with the system level ({sysLevel})."
+                    else:
+                        operator = idMat
+                else:
+                    # Not on the first qubit
+                    if i in onQubits:
+                        matrixIndex = onQubits.index(i)
+                        operatorSize = numpy.shape(matrices[matrixIndex])
+                        assert operatorSize == (sysLevel, sysLevel), \
+                            f"Dim of input matrix {operatorSize} does not match with the system level ({sysLevel})."
+                        operator = numpy.kron(operator, matrices[matrixIndex])
+                    else:
+                        operator = numpy.kron(operator, idMat)
+            return operator
+        
+        else:
+            assert False, "Variable onQubits should be a list or an int."
+    # The sysLevel is a list of different energy levels for multiple qubits
+    if isinstance(sysLevel, list):
+        # Create a list of identities of different dimension for each qubit of different energy level
+        idMat = [numpy.identity(i, dtype=complex) for i in sysLevel]
+        # The operator is acting on only one qubit.
+        if isinstance(onQubits, int):
+            assert numpy.size(matrices) == (sysLevel[onQubits], sysLevel[onQubits]), "Dimension of matrix does not match the system Level." 
+            # The operator is acting on the first qubit.
+            if onQubits == 0:
+                operator = matrices
+                for i in range(1, qubitNum):
+                    operator = numpy.kron(operator, idMat[i])
+            else:
+                # This operator is not acting on the first qubit.
+                operator = idMat[0]
+                for i in range(1, onQubits):
+                    operator = numpy.kron(operator, idMat[i])
+                operator = numpy.kron(operator, matrices)
+                for i in range(onQubits + 1, qubitNum):
+                    operator = numpy.kron(operator, idMat[i])
+            return operator
+        # The operator is acting on multiple qubits.
+        elif isinstance(onQubits, list):
+            operator = []
+            for i in range(qubitNum):
+                if i == 0:
+                    # Acting on the first qubit
+                    if i in onQubits:
+                        matrixIndex = onQubits.index(i)
+                        operator = matrices[matrixIndex]
+                        operatorSize = numpy.shape(matrices[matrixIndex])
+                        assert operatorSize == (sysLevel[i], sysLevel[i]), \
+                            f"Dim of input matrix {operatorSize} does not match with the system level ({sysLevel[i]})."
+                    else:
+                        operator = idMat[i]
+                else:
+                    # Not acting on the first qubit
+                    if i in onQubits:
+                        matrixIndex = onQubits.index(i)
+                        operatorSize = numpy.shape(matrices[matrixIndex])
+                        assert operatorSize == (sysLevel[i], sysLevel[i]), \
+                            f"Dim of input matrix {operatorSize} does not match with the system level ({sysLevel[i]})."
+                        operator = numpy.kron(operator, matrices[matrixIndex])
+                    else:
+                        operator = numpy.kron(operator, idMat[i])
+            return operator
+        
+        else:
+            assert False, "Variable onQubits should be a list or an int."
 
 
 def plotWaves(ham: Dict[str, Any], names: Union[str, List[str]] = None,
-              color: Union[str, List[str]] = None, dark: bool = False) -> None:
+              xUnit: str = 'ns', yUnit: str = 'Amp (a.u.)', color: Union[str, List[str]] = None,
+              dark: bool = False) -> None:
     """
     Print the waveforms of the control terms listed in ``names``.
 
     :param ham: the Hamiltonian dictionary
     :param names: the name or name list of the control term
+    :param xUnit: the unit of the x axis
+    :param yUnit: the unit of the y axis
     :param color: None or list of colors
     :param dark: the plot can be switched to dark mode if required by user
     :return: None
@@ -724,7 +799,7 @@ def plotWaves(ham: Dict[str, Any], names: Union[str, List[str]] = None,
         tList = numpy.linspace(0, maxNs, len(aList))
         y.append(list(aList))
         x.append(list(tList))
-        yLabel.append('Amp (a.u.)')
+        yLabel.append(yUnit)
 
         # Whether repetitive colors or all blue
         if color is None:
@@ -735,7 +810,7 @@ def plotWaves(ham: Dict[str, Any], names: Union[str, List[str]] = None,
             if colorIndex == len(color):
                 colorIndex = 0
         fig += 1
-    plotPulse(x, y, xLabel='Time (ns)', yLabel=yLabel, title=names, color=colors, dark=dark)
+    plotPulse(x, y, xLabel=f'Time ({xUnit})', yLabel=yLabel, title=names, color=colors, dark=dark)
     plt.show()
     clearCache(ham)
 
@@ -905,7 +980,15 @@ def simulate(ham: Dict[str, Any], recordEvolution: bool = False, jobList: List[L
         # Get the max time
         maxDt = _ham["circuit"]["max_time_dt"]
         # Start timing
-        unitary = numpy.identity(sysLevel ** qubitNum, dtype=complex)
+        # If the sysLevel is an integer to indicate the same energy level for each qubit
+        if isinstance(sysLevel, int):
+            unitary = numpy.identity(sysLevel ** qubitNum, dtype=complex)
+        # If the sysLevel is a list of energy levels for different qubit
+        elif isinstance(sysLevel, list):
+            dim = 1
+            for i in sysLevel:
+                dim = dim * i
+            unitary = numpy.identity(dim, dtype=complex)
         unitaryList = []
         for nowDt in range(0, maxDt):
             totalHam = drift.copy()
@@ -1028,7 +1111,13 @@ def buildOperatorCache(ham: Dict[str, Any]) -> None:
         ham["cache"]["operator"]["drift"][key] = operator
 
     # Sum all the drift terms and save to the cache.
-    driftTotal = numpy.zeros((sysLevel ** qubitNum, sysLevel ** qubitNum), dtype=complex)
+    if isinstance(sysLevel, int):
+        driftTotal = numpy.zeros((sysLevel ** qubitNum, sysLevel ** qubitNum), dtype=complex)
+    elif isinstance(sysLevel, list):
+        dim = 1
+        for i in sysLevel:
+            dim = dim * i
+        driftTotal = numpy.zeros((dim, dim), dtype=complex)
     for key in ham["cache"]["operator"]["drift"]:
         driftTotal = driftTotal + ham["cache"]["operator"]["drift"][key]
     ham["cache"]["matrix_of_drift"] = driftTotal

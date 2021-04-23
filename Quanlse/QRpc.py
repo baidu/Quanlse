@@ -87,7 +87,7 @@ def rpcCall(optimizer, args, kwargs, debug=False):
         file.write(programBuf.encode("utf-8"))
 
     token, circuitId = _uploadCircuit(circuitPackageFile)
-    taskType = "quanlse_simulator" if optimizer == "runHamiltonian" else "quanlse_optimizer"
+    taskType = "quanlse_simulator" if optimizer in ("runHamiltonian", "noisySimulator") else "quanlse_optimizer"
     taskId = _createTask(token, circuitId, optimizer, debug, taskType=taskType)
 
     if outputInfo:

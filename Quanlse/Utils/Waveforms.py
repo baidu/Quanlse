@@ -246,7 +246,7 @@ def waveFuncToSeq(waveForm: Dict[str, Any], maxDt: int, dt: float) -> List[float
     return sequenceList
 
 
-def waveDataToSeq(data: Union[Dict[str, Any], List[Dict[str, Any]]], dt: float, maxDt: int = None)\
+def waveDataToSeq(data: Union[Dict[str, Any], List[Dict[str, Any]]], dt: float = 0.22, maxDt: int = None)\
         -> Union[Dict[str, Any], List[Dict[str, Any]]]:
     """
     Transform the waveData to a JSON serializable datatype. This function transforms the callable
@@ -304,3 +304,57 @@ def computeWaveDataMaxTime(data: Union[Dict[str, Any], List[Dict[str, Any]]], dt
         maxDt = math.floor(maxNs / dt)
 
     return maxNs, maxDt
+
+
+def addPulse(channel: str, t0: float = 0, t: float = 0, dt: float = 0.22,
+             f: Union[Callable, str] = None, para: Dict[str, Any] = None,
+             seq: List[float] = None) -> Dict[str, Any]:
+    r"""
+    Add pulses to x-y channel or readout channel.
+
+    :param channel: the channel for x-y control or readout.
+    :param t0: the start time of the pulse.
+    :param t: the end time of the pulse.
+    :param f: the callable function or the predefined string of the waveform.
+    :param para: the parameters for waveform.
+    :param seq: the sequence of the pulse.
+    :param dt: the sampling period for each cycle.
+    :return: the dictionary containing the information of the wave.
+    """
+    assert (channel == 'x' or channel == 'y' or channel == 'readout'),\
+           'The name of the channel should be \'x\', \'y\' or \'readout\'.'
+
+    assert not (seq is not None and f is not None),\
+           'Cannot input seq and f at the same time.'
+
+    if f is None:
+        assert seq is not None, "You should input one of func or seq."
+
+        t = len(seq) * dt
+
+        # Record necessary information of the wave
+        return {
+            "name": channel,
+            "func": None,
+            "para": para,
+            "insert_ns": t0,
+            "duration_ns": t,
+            "sequence": seq
+        }
+    elif callable(f) or isinstance(f, str):
+        if seq is not None:
+            print("WARNING: func is given, hence the input of seq is ignored!")
+
+        # Record necessary information of the wave
+        return {
+            "name": channel,
+            "func": f,
+            "para": para,
+            "insert_ns": t0,
+            "duration_ns": t,
+            "sequence": None
+        }
+    else:
+        assert False,\
+                'Unsupported type of input for func, it should be a string,\
+                function or None.'

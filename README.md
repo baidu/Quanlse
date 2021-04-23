@@ -2,7 +2,7 @@ English | [简体中文](README_CN.md)
 
 ![](https://release-data.cdn.bcebos.com/Quanlse_title_en.png)
 
-[![](https://img.shields.io/badge/license-Apache%202.0-green)](./LICENSE) [![](https://img.shields.io/badge/build-passing-green)]() ![](https://img.shields.io/badge/Python-3.6--3.8-blue) ![](https://img.shields.io/badge/release-v1.0.0-blue)
+[![](https://img.shields.io/badge/license-Apache%202.0-green)](./LICENSE) [![](https://img.shields.io/badge/build-passing-green)]() ![](https://img.shields.io/badge/Python-3.6--3.8-blue) ![](https://img.shields.io/badge/release-v1.1.0-blue)
 
 [Quanlse (量脉)](https://quanlse.baidu.com) is a cloud-based platform for quantum control developed by the [Institute for Quantum Computing](https://quantum.baidu.com) at Baidu Research. Quanlse aims to bridge the gap between quantum software and hardware. It provides efficient and professional quantum control solutions via an open-source SDK strengthened by Quanlse Cloud Service.
 
@@ -18,6 +18,12 @@ We recommend the following way of installing Quanlse with `pip`,
 
 ```bash
 pip install Quanlse
+```
+
+If you have already installed Quanlse, use the following code to update:
+
+```
+pip install --upgrade Quanlse
 ```
 
 ### Download and install via GitHub
@@ -49,18 +55,26 @@ To get started with Quanlse, users are recommended to go through the [Overview](
 
 Quanlse provides detailed and comprehensive tutorials from fundamental to advanced topics. Each tutorial currently supports reading on our [website](https://quanlse.baidu.com). For interested developers, we recommend them to download [Jupyter Notebooks](https://github.com/baidu/Quanlse/tree/master/Tutorial/EN) and play with it. The tutorial list is as follows:
 
-- **Single-Qubit Control**
-    - [Single-Qubit Gate](https://quanlse.baidu.com/#/doc/tutorial-single-qubit)
-    - [Calibrate Pi Pulses](https://quanlse.baidu.com/#/doc/tutorial-pi-pulse)
-- **Two-Qubit Control**
-    - [iSWAP Gate](https://quanlse.baidu.com/#/doc/tutorial-iswap)
-    - [Controlled-Z Gate](https://quanlse.baidu.com/#/doc/tutorial-cz)
-    - [Cross-Resonance Gate](https://quanlse.baidu.com/#/doc/tutorial-cr)
-- **Advanced Applications**
-    - [Derivative Removal by Adiabatic Gate](https://quanlse.baidu.com/#/doc/tutorial-drag)
-    - [Error Analysis](https://quanlse.baidu.com/#/doc/tutorial-error-analysis)
-    - [Quanlse Scheduler](https://quanlse.baidu.com/#/doc/tutorial-scheduler)
-    - [Pulse-based Variational Quantum Eigensolver Algorithm](https://quanlse.baidu.com/#/doc/tutorial-pbvqe)
++ **Overview**
+  + [Tutorial Outline](https://quanlse.baidu.com/#/doc/tutorial-outline)
+  + [Construct Hamiltonian](https://quanlse.baidu.com/#/doc/tutorial-construct-ham)
++ **QuanlseSuperconduct**
+    + Single-Qubit Control
+        + [Single-Qubit Gate](https://quanlse.baidu.com/#/doc/tutorial-single-qubit)
+        + [Optimizer Pulses Using GRAPE](https://quanlse.baidu.com/#/doc/tutorial-GRAPE)
+        + [Calibrate Pi Pulse](https://quanlse.baidu.com/#/doc/tutorial-pi-pulse)
+        + [Derivative Removal by Adiabatic Gate](https://quanlse.baidu.com/#/doc/tutorial-drag)
+    + Two-Qubit Control
+      + [iSWAP Gate](https://quanlse.baidu.com/#/doc/tutorial-iswap)
+      + [Controlled-Z Gate](https://quanlse.baidu.com/#/doc/tutorial-cz)
+      + [Cross-Resonance Gate](https://quanlse.baidu.com/#/doc/tutorial-cr)
+    + Advanced Applications
+        + [Error Analysis](https://quanlse.baidu.com/#/doc/tutorial-error-analysis)
+        + [Quanlse Scheduler](https://quanlse.baidu.com/#/doc/tutorial-scheduler)
+        + [Pulse-based Variational Quantum Eigensolver Algorithm](https://quanlse.baidu.com/#/doc/tutorial-pbvqe)
+        + [Single-Qubit Simulator](https://quanlse.baidu.com/#/doc/tutorial-1qubit-simulator)
++ [QuanlseIon-Trap](https://quanlse.baidu.com/#/doc/tutorial-trapped-ion-gate)
++ [QuanlseNMR](https://quanlse.baidu.com/#/doc/nmr)
 
 In addition, Quanlse also supports quantum control for nuclear magnetic resonance (NMR) quantum computing. For more information about [QuanlseNMR](https://nmr.baidu.com/en/), please refer to the [tutorial: QuanlseNMR](https://quanlse.baidu.com/#/doc/nmr).
 

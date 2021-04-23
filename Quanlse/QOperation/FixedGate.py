@@ -216,7 +216,13 @@ On the simulator mode (use inside the simulator): Matrix form:
 :math:`CZ = \begin{bmatrix} 1 & 0  &0 & 0 \\ 0 & 0  & -i & 0 \\ 0 & -i & 0 & 0 \\ 0 & 0  & 0 & 1 \end{bmatrix}`
 """
 
-CNOT = FixedGateOP('CNOT', 2, None)
+CNOT = FixedGateOP('CNOT', 2, numpy.array([
+                         [1, 0, 0, 0],
+                         [0, 1, 0, 0],
+                         [0, 0, 0, 1],
+                         [0, 0, 1, 0],
+                    ], dtype=complex)
+                    )
 r"""
 CNOT gate, or control-X gate.
 
@@ -225,7 +231,13 @@ On the simulator mode (use inside the simulator): Matrix form:
 :math:`CNOT = \begin{bmatrix} 1 & 0  &0 & 0 \\ 0 & 1  & 0& 0 \\ 0 & 0  & 0 & 1 \\ 0 & 0  & 1 & 0 \end{bmatrix}`
 """
 
-SWAP = FixedGateOP('SWAP', 2, None)
+SWAP = FixedGateOP('SWAP', 2, numpy.array([                       
+                            [1, 0, 0, 0],
+                            [0, 0, 1, 0],
+                            [0, 1, 0, 0],
+                            [0, 0, 0, 1]
+                        ], dtype=complex)
+                        )
 r"""
 SWAP gate.
 

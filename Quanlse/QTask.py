@@ -35,6 +35,7 @@ from baidubce.services.bos.bos_client import BosClient
 from Quanlse import Define
 from Quanlse.Define import quantumHubAddr, quantumBucket, pollInterval, sdkVersion, taskSourceQuanlse, outputPath
 from Quanlse.Define import waitTaskRetrys
+
 from Quanlse.Define.Settings import outputInfo
 from Quanlse.QPlatform import Error
 

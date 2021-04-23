@@ -94,6 +94,7 @@ def stateTruthTable(unitary, qubitNum, sysLevel, initialBasisList=None, finalBas
     :param finalBasisList: the list final basis
     :return: the population matrix
     """
+    assert isinstance(sysLevel, int), 'This function only supports an integer system level currently.' 
 
     resultMatrix = []
     if initialBasisList is None:
