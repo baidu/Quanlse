@@ -52,7 +52,7 @@ Now, you can try to run a program to verify whether Quanlse has been installed s
 
 ```bash
 cd Example
-python 1-Example-Pi-Pulse.py
+python 1-example-pi-pulse.py
 ```
 
 ## Introduction and developments
@@ -69,7 +69,7 @@ Quanlse provides detailed and comprehensive tutorials from fundamental to advanc
   + [Construct Hamiltonian](https://quanlse.baidu.com/#/doc/tutorial-construct-ham)
   + **Single-Qubit Control**
     + [Single-Qubit Gate](https://quanlse.baidu.com/#/doc/tutorial-single-qubit)
-    + [Optimize Pulses Using GRAPE](https://quanlse.baidu.com/#/doc/tutorial-GRAPEoptimizer)
+    + [Optimize Pulses Using GRAPE](https://quanlse.baidu.com/#/doc/tutorial-GRAPE)
     + [Calibrate $\pi$ Pulse](https://quanlse.baidu.com/#/doc/tutorial-pi-pulse)
     + [Derivative Removal by Adiabatic Gate](https://quanlse.baidu.com/#/doc/tutorial-drag)
   + **Two-Qubit Gate Control**

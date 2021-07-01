@@ -52,7 +52,7 @@ pip install -e .
 
 ```bash
 cd Example
-python 1-Example-Pi-Pulse.py
+python 1-example-pi-pulse.py
 ```
 
 ## 入门和开发
