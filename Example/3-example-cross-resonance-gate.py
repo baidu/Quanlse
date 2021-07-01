@@ -23,12 +23,12 @@ Please visit https://quanlse.baidu.com/#/doc/tutorial-cr for more details about 
 from numpy import round
 from math import pi
 
-from Quanlse import Define
-from Quanlse.Utils import Hamiltonian as qham
-from Quanlse.Utils.Tools import project
+from Quanlse.QHamiltonian import QHamiltonian as QHam
+from Quanlse.Utils.Functions import project
 from Quanlse.remoteOptimizer import remoteOptimizeCr as opt
+from Quanlse.QOperator import duff, number
+from Quanlse import Define
 
-from Quanlse.Utils import Operator
 
 # Your token:
 # Please visit http://quantum-hub.baidu.com
@@ -43,9 +43,9 @@ qubits = 2
 # System energy level.
 level = 3
 
-# --------------------------
-# Define the qubit arguments
-# --------------------------
+# ---------------------------
+# Define the qubit arguments.
+# ---------------------------
 
 qubitArgs = {
     "coupling": 0.0038 * (2 * pi),  # Coupling of Q0 and Q1
@@ -58,45 +58,39 @@ qubitArgs = {
 }
 
 # ----------------------------
-# Construct system Hamiltonian
+# Construct system Hamiltonian.
 # ----------------------------
 
-# Create the Hamiltonian.
-ham = qham.createHam(title="2q-3l", dt=dt, qubitNum=qubits, sysLevel=level)
-
+# Create the Hamiltonian with given parameters.
+ham = QHam(qubits, level, dt)
 for qu in range(2):
-    # Add the detuning term(s).
-    qham.addDrift(ham, name=f"q{qu}-detuning", onQubits=qu, matrices=Operator.number(level),
-                  amp=(qubitArgs[f"qubit_freq{qu}"] - qubitArgs[f"drive_freq{qu}"]))
+    # Add the detuning terms.
+    ham.addDrift(number(level), qu, (qubitArgs[f"qubit_freq{qu}"] - qubitArgs[f"drive_freq{qu}"]))
 
-    # Add the anharmonicity term(s).
-    qham.addDrift(ham, name=f"q{qu}-anharm", onQubits=qu, matrices=Operator.duff(level),
-                  amp=qubitArgs[f"qubit_anharm{qu}"] / 2)
+    # Add the anharmonicity terms.
+    ham.addDrift(duff(level), qu, qubitArgs[f"qubit_anharm{qu}"] / 2)
 
-# Add the coupling term(s).
-qham.addCoupling(ham, "coupling", [0, 1], qubitArgs["coupling"] / 2)
-
-# Add the control term(s).
-qham.addControl(ham, name="q0-ctrlx", onQubits=0, matrices=Operator.driveX(level))
+# Add the coupling term.
+ham.addCoupling([0, 1], qubitArgs["coupling"] / 2)
 
 # ------------------------------------------
 # Run the optimization and show the results.
 # ------------------------------------------
 
 # Set amplitude bound.
-aBound = (0, 3.0)
+aBound = (-3.0, 3.0)
 
 # Run the optimization.
-ham, infidelity = opt(ham, aBound, tg=200, maxIter=5, targetInfidelity=0.005)
+gateJob, infidelity = opt(ham, aBound, tg=200, maxIter=5, targetInfidelity=0.01)
+
+# Print the basic information of Hamiltonian.
+print(ham)
 
 # Print infidelity and the waveform(s).
 print(f"Minimum infidelity: {infidelity}")
-qham.plotWaves(ham, ["q0-ctrlx"])
+gateJob.plot()
 
 # Print the evolution process.
-result = qham.simulate(ham)
-projectedEvolution = project(result["unitary"], qubits, level, 2)
+result = ham.simulate(job=gateJob)
+projectedEvolution = project(result.result[0]["unitary"], qubits, level, 2)
 print("Projected evolution:\n", round(projectedEvolution, 2))
-
-# Print the basic information of Hamiltonian.
-qham.printHam(ham)

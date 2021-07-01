@@ -34,6 +34,12 @@ from Quanlse.QTask import (
     _waitTask,
 )
 
+OPTIMIZER_TO_TASKTYPE = {
+    "runHamiltonian": "quanlse_simulator",
+    "zneMitigation": "quanlse_zne",
+}
+
+
 @_retryWhileNetworkError
 def _createTask(token, circuitId, optimizer, backendParam=None, modules=[], debug=False, taskType="quanlse_optimizer"):
     """
@@ -69,6 +75,7 @@ def _createTask(token, circuitId, optimizer, backendParam=None, modules=[], debu
 
     return ret['taskId']
 
+
 def rpcCall(optimizer, args, kwargs, debug=False):
     """
     invoke remote optimizer
@@ -87,7 +94,7 @@ def rpcCall(optimizer, args, kwargs, debug=False):
         file.write(programBuf.encode("utf-8"))
 
     token, circuitId = _uploadCircuit(circuitPackageFile)
-    taskType = "quanlse_simulator" if optimizer in ("runHamiltonian", "noisySimulator") else "quanlse_optimizer"
+    taskType = OPTIMIZER_TO_TASKTYPE.get(optimizer, "quanlse_optimizer")
     taskId = _createTask(token, circuitId, optimizer, debug, taskType=taskType)
 
     if outputInfo:

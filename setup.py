@@ -27,7 +27,7 @@ except ImportError:
 
 setup(
     name='Quanlse',
-    version='1.1.0',
+    version='2.0.0',
     description='A cloud-based platform for quantum control.',
     author='Baidu Quantum',
     author_email='quantum@baidu.com',
@@ -39,6 +39,6 @@ setup(
         'requests',
         'bce-python-sdk-reborn'
     ],
-    python_requires='>=3.6, <4',
+    python_requires='>=3.7, <4',
     license='Apache 2.0'
 )

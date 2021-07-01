@@ -42,15 +42,22 @@ class RotationGateOP(QOperation):
     def __init__(self, gate: str, bits: int,
                  angleList: List['RotationArgument'],
                  uGateArgumentList: List['RotationArgument']) -> None:
+        """
+        Constructor for RotaionGateOP class
+        """
         super().__init__(gate, bits)
         self.argumentList = angleList
         self.uGateArgumentList = uGateArgumentList
 
     def __call__(self, *qRegList: QRegStorage, gateTime: Optional[float] = None) -> None:
-        self._op(list(qRegList), gateTime)
+        self._op(list(qRegList))
 
     def generateMatrix(self) -> numpy.ndarray:
-        pass
+        """
+        Generate the matrix of rotation gate.
+        """
+        self._generateUMatrix()
+        return self._matrix
 
     def _u3Matrix(self, theta: float, phi: float, lamda: float) -> numpy.ndarray:
         """
@@ -104,6 +111,11 @@ class RotationGateOP(QOperation):
         return self._matrix
 
     def _generateUMatrix(self) -> None:
+        """
+        Generate U matrix
+
+        :return: None
+        """
         uGateArgumentCount = len(
             [value for value in self.uGateArgumentList if isinstance(value, (float, int))])
         if uGateArgumentCount != len(self.uGateArgumentList):
@@ -116,6 +128,11 @@ class RotationGateOP(QOperation):
             self._u1Matrix(*self.uGateArgumentList)
 
     def _generateCUMatrix(self) -> None:
+        """
+        Return CU matrix
+
+        :return: None
+        """
         uGateArgumentCount = len([value for value in self.uGateArgumentList if isinstance(value, (float, int))])
         if uGateArgumentCount != len(self.uGateArgumentList):
             pass  # has parameter

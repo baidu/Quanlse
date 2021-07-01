@@ -16,25 +16,23 @@
 # limitations under the License.
 
 """
-Quantum Register Poll
+Quantum Register Pool
 """
 from typing import Dict, TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from Quanlse.QuanlseEnv import QuanlseEnv
 
 
 class QRegStorage:
     """
-    The storage for quantum register
+    The storage for quantum register.
     """
 
-    def __init__(self, index: int, env: 'QuanlseEnv') -> None:
+    def __init__(self, index: int, env: 'Scheduler') -> None:
         """
-        The quantum register object needs to know its index and related quantum environment
+        The quantum register object needs to have an index and a quantum environment.
 
         :param index: the quantum register index
-        :param env: the related quantum environment or procedure
+        :param env: quantum environment or procedure
+        :return: None
         """
 
         self.index = index
@@ -46,11 +44,12 @@ class QRegPool:
     The quantum register dict
     """
 
-    def __init__(self, env: 'QuanlseEnv') -> None:
+    def __init__(self, env: 'Scheduler') -> None:
         """
         The constructor of the QRegPool class
 
         :param env: the related quantum environment or procedure
+        :return: None
         """
 
         # the quantum environment related with the quantum register dict
@@ -59,9 +58,21 @@ class QRegPool:
         self.registerMap = {}  # type: Dict[int, QRegStorage]
 
     def __getitem__(self, index: int) -> QRegStorage:
+        """
+        Return the quantum register at the given index
+
+        :param index: item index
+        :return: the returned item
+        """
         return self._get(index)
 
     def __call__(self, index: int) -> QRegStorage:
+        """
+        Return the quantum register at the given index
+
+        :param index: item index
+        :return: the returned quantum register
+        """
         return self._get(index)
 
     def _get(self, index: int) -> QRegStorage:
@@ -80,7 +91,13 @@ class QRegPool:
             self.registerMap[index] = value
         return value
 
-    def changeEnv(self, env: 'QuanlseEnv') -> None:
+    def changeEnv(self, env: 'Scheduler') -> None:
+        """
+        Change the environment
+
+        :param env: the environment to be changed to
+        :return: None
+        """
         self.env = env
         for qReg in self.registerMap.values():
             qReg.env = env

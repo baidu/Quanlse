@@ -20,14 +20,17 @@ Example: Pi pulse
 Please visit https://quanlse.baidu.com/#/doc/tutorial-pi-pulse for more details about this example.
 """
 
-from numpy import round
 from math import pi, sqrt
 
-from Quanlse.Utils import Hamiltonian as qham
-from Quanlse.Utils import Operator
+from Quanlse.QHamiltonian import QHamiltonian as QHam
+from Quanlse.QOperator import driveX
+from Quanlse.QWaveform import gaussian
+from Quanlse.Utils.Infidelity import unitaryInfidelity
+from Quanlse.QOperation.FixedGate import X
 
-# Sampling period.
-dt = 0.2
+
+# Gate duration time.
+tg = 20
 
 # Number of qubit(s).
 qubits = 1
@@ -35,30 +38,32 @@ qubits = 1
 # System energy level.
 level = 2
 
-# Gate duration time.
-tg = 20
+# Sampling period.
+dt = 0.2
 
-# --------------------------------
-# Construct the system Hamiltonian
-# --------------------------------
+# ---------------------------------
+# Construct the system Hamiltonian.
+# ---------------------------------
 
-# Create the Hamiltonian.
-ham = qham.createHam(title="1q-2l", dt=dt, qubitNum=qubits, sysLevel=level)
+# Create the Hamiltonian with given parameters.
+ham = QHam(subSysNum=qubits, sysLevel=level, dt=dt)
 
-# Add the control term(s).
-qham.addControl(ham, name="q0-ctrlx", onQubits=0, matrices=Operator.driveX(level))
+# Amplitude of the gaussian waveform with integral value of pi.
+piAmp = pi / (tg / 8) / sqrt(2 * pi)
 
-# Add Pi pulse wave(s).
-# `amp` is calculated from the integral of Gaussian function.
-amp = pi / (tg / 8) / sqrt(2 * pi)
-qham.addWave(ham, "q0-ctrlx", f="gaussian", t0=0, t=tg, para={"a": amp, "tau": tg / 2, "sigma": tg / 8})
+# Add gaussian waveform to control Hamiltonian.
+ham.addWave(driveX(level), 0, gaussian(0, tg, piAmp, tg / 2, tg / 8))
 
-# Print the basic information of Hamiltonian.
-qham.printHam(ham)
+# ------------------------------------------
+# Run the simulation and show the results.
+# ------------------------------------------
 
-# Simulate the evolution and print the result.
-unitary = qham.getUnitary(ham)
-print("Evolution unitary:\n", round(unitary, 2))
+# Run the optimization.
+results = ham.simulate()
 
-# Print the waveform.
-qham.plotWaves(ham)
+# Show the result and plot the waveform.
+print("Infidelity:", unitaryInfidelity(X.getMatrix(), results.result[0]["unitary"], 1))
+ham.plot()
+
+# Print the structure of a Hamiltonian.
+print(ham)

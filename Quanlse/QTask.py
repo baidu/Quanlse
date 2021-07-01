@@ -22,8 +22,6 @@ import json
 import os
 import time
 import traceback
-from enum import Enum
-from pprint import pprint
 
 import requests
 from baidubce.auth.bce_credentials import BceCredentials
@@ -132,44 +130,6 @@ def _uploadCircuit(file):
     )
 
     return token, ret['circuitId']
-
-
-@_retryWhileNetworkError
-def _createTask(token, circuitId, algorithm, hardwareImplementation, tStep, backendParam=None, modules=[], debug=False):
-    """
-    Create a task from the code
-    """
-
-    task = {
-        "token": token,
-        "circuitId": circuitId,
-        "taskType": "quanlse_scheduler",
-        "sdkVersion": sdkVersion,
-        "source": taskSourceQuanlse,
-        "algorithm": algorithm.name,
-        "hardwareImplementation": hardwareImplementation.name,
-        "tStep": tStep,
-        "modules": modules
-    }
-
-    if debug:
-        task['debug'] = debug
-
-    if backendParam:
-        paramList = []
-        for param in backendParam:
-            if isinstance(param, Enum):
-                paramList.append(param.value)
-            else:
-                paramList.append(param)
-        task['backendParam'] = paramList
-
-    ret = invokeBackend(
-        "task/createTask",
-        task
-    )
-
-    return ret['taskId']
 
 
 def _downloadToFile(url, localFile):

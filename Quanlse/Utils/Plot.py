@@ -19,15 +19,12 @@
 Plot functions.
 """
 
-import numpy, math
-import matplotlib
+import numpy
 import matplotlib.pyplot as plt
-from matplotlib.ticker import FormatStrFormatter, LogFormatter
+from matplotlib.ticker import FormatStrFormatter
 from typing import List, Dict, Any, Union
-from Quanlse.Utils.Waveforms import play
-from mpl_toolkits.axes_grid1 import make_axes_locatable
-
-from Quanlse.Utils.Tools import computationalBasisList
+import matplotlib.ticker as mtick
+from Quanlse.QPlatform.Error import ArgumentError
 
 
 def plotScheduler(taskResult: Dict[str, Any], dark: bool = False) -> None:
@@ -36,6 +33,7 @@ def plotScheduler(taskResult: Dict[str, Any], dark: bool = False) -> None:
 
     :param taskResult: task result dictionary from QuanlseScheduler
     :param dark: enables a dark-themed mode
+    :return: None
     """
 
     # get qubit number
@@ -94,7 +92,8 @@ def plotScheduler(taskResult: Dict[str, Any], dark: bool = False) -> None:
                 maxX = x[i][j]
             if x[i][j] < minX:
                 minX = x[i][j]
-    assert not empty, "Please input non-empty array"
+    if empty:
+        raise ArgumentError("Please input non-empty array")
 
     # fill the pulses' blank space with zeros
     for i in range(len(x)):
@@ -130,6 +129,7 @@ def plotBarGraph(x: List[Any], y: List[float], title: str = "", xLabel: str = ""
     :param lineWidth: line width index
     :param fontSize: font size index
     :param spacing: vertical/horizontal spacing index
+    :return: None
     """
     # define color map
     cMap = colorMap()
@@ -200,7 +200,7 @@ def plotLineGraph(x: Union[List[List[float]], List[float]], y: Union[List[List[f
     :param fontSize: font size index
     :param spacing: vertical spacing index
     :param log: log, default at false
-
+    :return: None
     """
 
     # Default color theme
@@ -285,9 +285,11 @@ def plotLineGraph(x: Union[List[List[float]], List[float]], y: Union[List[List[f
     plt.show()
 
 
-def plotPulse(x: Union[List[List[float]], List[float]], y: Union[List[List[float]], List[float]],
+def plotPulse(x: Union[List[List[float]], List[float]],
+              y: Union[List[List[Union[float, complex]]], List[Union[float, complex]]],
               title: Union[List[str], str], yLabel: Union[List[str], str], color: Union[List[str], str],
-              xLabel: str = '', lineWidth: float = 1.0, fontSize: float = 10, spacing: float = 0.1, dark: bool = False):
+              xLabel: str = '', lineWidth: float = 1.0, fontSize: float = 10, spacing: float = 0.1, dark: bool = False,
+              complx: bool = False) -> None:
     """
     Plots pulse graphs, and is used in the plotWave() function in the Hamiltonian file. This function takes
     two mandatory two-dimensional lists of X and Y values. This function also supports other optional parameters
@@ -305,6 +307,8 @@ def plotPulse(x: Union[List[List[float]], List[float]], y: Union[List[List[float
     :param fontSize: font size index
     :param spacing: vertical spacing index
     :param dark: enables a dark-themed mode
+    :param complx: enable complex plotting
+    :return: None
     """
 
     # Set color theme
@@ -332,12 +336,13 @@ def plotPulse(x: Union[List[List[float]], List[float]], y: Union[List[List[float
     for k in range(0, len(x)):
 
         # if lengths of the two lists don't match
-        assert len(x[k]) == len(y[k]), "Lengths of lists do not match"
+        if len(x[k]) != len(y[k]):
+            raise ArgumentError("Lengths of lists do not match")
 
         # f list x contains more than 250 slices, switch to line plot
         maxPieces = 250
         plotType = 'slice'
-        if len(y[k]) > maxPieces:
+        if len(y[k]) > maxPieces or complx is True:
             plotType = 'line'
 
         # check whether color exists in colormap
@@ -352,9 +357,15 @@ def plotPulse(x: Union[List[List[float]], List[float]], y: Union[List[List[float
 
                 # plot graph (line/bar)
                 if plotType == 'line':
+                    realY = [y[k][i].real for i in range(len(y[k]))]
+                    comY = [y[k][i].imag for i in range(len(y[k]))]
                     ax[k].axhline(linewidth=lineWidth * 1.3, color=axisColor, alpha=0.4, ls=':')
-                    ax[k].plot(x[k], y[k], color=aColor[1], linewidth=lineWidth * 1.3)
-                    ax[k].fill_between(x[k], 0, y[k], facecolor=aColor[1], alpha=0.05)
+                    ax[k].plot(x[k], realY, color=aColor[1], linewidth=lineWidth * 1.3)
+                    ax[k].fill_between(x[k], 0, realY, facecolor=aColor[1], alpha=0.07)
+
+                    if complx:
+                        ax[k].plot(x[k], comY, color='darkviolet', linewidth=lineWidth * 1.3)
+                        ax[k].fill_between(x[k], 0, comY, facecolor='darkviolet', alpha=0.05)
                 elif plotType != 'line':
                     # shift pulse so that first pulse starts on 0
                     for i in x[k]:
@@ -370,14 +381,27 @@ def plotPulse(x: Union[List[List[float]], List[float]], y: Union[List[List[float
             raise ValueError('Color not found!')
 
         # adjust spacing between borders
-        if max(y[k]) == min(y[k]):
-            ax[k].set_ylim(min(y[k]) - (spacing * 10), max(y[k]) + (spacing * 10))
+        if complx is False:
+            if type(y[k][0]) is complex:
+                raise ValueError('Complex value found in non-complex mode!')
+            if max(y[k]) == min(y[k]):
+                ax[k].set_ylim(min(y[k]) - (spacing * 10), max(y[k]) + (spacing * 10))
+            else:
+                ax[k].set_ylim(
+                    [min(y[k]) - (max(y[k]) - min(y[k])) * spacing * 2.5,
+                     max(y[k]) + (max(y[k]) - min(y[k])) * (spacing + 0.3)])
+            ax[k].set_xlim(min(x[k]), max(x[k]))
         else:
-            ax[k].set_ylim(
-                [min(y[k]) - (max(y[k]) - min(y[k])) * spacing * 2.5,
-                 max(y[k]) + (max(y[k]) - min(y[k])) * (spacing + 0.3)])
-        ax[k].set_xlim(min(x[k]), max(x[k]))
-
+            # realParts = [y[k]]
+            maxY = max(max(realY), max(comY))
+            minY = min(min(realY), min(comY))
+            if maxY == minY:
+                ax[k].set_ylim(minY - (spacing * 10), maxY + (spacing * 10))
+            else:
+                ax[k].set_ylim(
+                    [minY - (maxY - minY) * spacing * 2.5,
+                     maxY + (maxY - minY) * (spacing + 0.3)])
+            ax[k].set_xlim(min(x[k]), max(x[k]))
         # if last, add label, otherwise remove ticks,
         if k != len(x) - 1:
             ax[k].set_xticks([])
@@ -419,6 +443,17 @@ def plotPulse(x: Union[List[List[float]], List[float]], y: Union[List[List[float
         # set facecolor
         ax[k].set_facecolor(bgColor)
 
+        # check if scientific notation is needed
+        fig.canvas.draw()
+        for i in range(len(ax[k].get_yticklabels())):
+            for j in range(len(ax[k].get_yticklabels())):
+                if ax[k].get_yticklabels()[i].get_text() =='0.0' and ax[k].get_yticklabels()[j].get_text() =='-0.0':
+                    ax[k].yaxis.set_major_formatter(mtick.FormatStrFormatter('%.2e'))
+                    break
+                if ax[k].get_yticklabels()[i].get_text() == ax[k].get_yticklabels()[j].get_text() and i != j:
+                    ax[k].yaxis.set_major_formatter(mtick.FormatStrFormatter('%.2e'))
+                    break
+
     # align y labels
     fig.align_ylabels(ax[:])
     plt.show()
@@ -430,6 +465,7 @@ def plotProcess(chi: Dict[str, Any]) -> None:
     which is directly generated from processTomography.
 
     :param chi: Chi Dictionary that is obtained from processTomography
+    :return: None
     """
 
     # setup the figure and axes
@@ -483,6 +519,7 @@ def plotHeatMap(matrix: numpy.ndarray, xTicks: List = None, yTicks: List = None,
     :param yLabel: label on Y axis
     :param useLog: format ticks on a log scale
     :param cMap: indicate color_map
+    :return: None
     """
 
     ax = plt.gca()
@@ -568,6 +605,7 @@ def plotIonPosition(ionPos: List[Any]) -> None:
     Plot the position of the ion in the equilibrium.
 
     :param ionPos: the positions of the ions.
+    :return: None
     """
     plt.figure()
     plt.scatter(numpy.array(ionPos), numpy.zeros(numpy.size(ionPos)), s=100)
@@ -588,89 +626,67 @@ def plotIonPosition(ionPos: List[Any]) -> None:
     plt.show()
 
 
-def plotSched(waveDataCtrl: Union[Dict[str, Any], List[Dict[str, Any]]],
-              waveDataReadout: Union[Dict[str, Any], List[Dict[str, Any]]] = None, dt: float = 0.2) -> None:
+def plotPop(x: List[Any], y: List[float], title: str = "", xLabel: str = "", yLabel: str = "",
+                 color: str = 'purple', lineWidth: float = 1.0, fontSize: float = 10, spacing: float = 0.1) \
+        -> None:
     """
-    Plot the pulse schedule used in the noisy simulator.
+    Plot bar graphs with given X labels and Y values lists, this function also supports other optional
+    parameters as shown below.
 
-    :param waveDataCtrl: the control pulse sequence.
-    :param waveDataReadout: the readout pulse sequence.
-    :param dt: the sampling time period.
+    :param x: a list of X labels for the graphs
+    :param y: a list of Y coordinates for the bar graphs
+    :param title: overall title of the graph
+    :param xLabel: label on X axis
+    :param yLabel: label on Y axis
+    :param color: a color for all bars, default at blue (from mint, blue, red, green, yellow, black, pink, cyan,
+        purple, darkred, orange, brown, pink and teal)
+    :param lineWidth: line width index
+    :param fontSize: font size index
+    :param spacing: vertical/horizontal spacing index
+    :return: None
     """
+    # define color map
+    cMap = colorMap()
 
-    if isinstance(waveDataCtrl, Dict):
-        waveDataCtrl = [waveDataCtrl]
+    xList = numpy.arange(len(y))
+
+    # Create figure instance
+    plt.figure(1, (15, 10))
+
+    # Set graph size and background color
+    plt.rcParams["figure.figsize"] = (15, 10)
+    plt.rcParams['axes.linewidth'] = lineWidth * 2
+
+    # title and size
+    if title is not None:
+        plt.title(title, size=int(fontSize * 1.4), weight='bold')
+
+    # label and size
+    if xLabel != "":
+        plt.xlabel(xLabel, size=int(fontSize * 1.2), weight='bold')
+    if yLabel != "":
+        plt.ylabel(yLabel, size=int(fontSize * 1.2), weight='bold')
+
+    # Ticks size
+    plt.xticks(fontsize=fontSize, weight='bold')
+    plt.yticks(fontsize=fontSize, weight='bold')
+
+    # adjust vertical and horizontal spacing
+    plt.xlim([min(xList) - (max(xList) - min(xList)) * spacing, max(xList) + (max(xList) - min(xList)) * spacing])
+    if min(y) >= 0:
+        plt.ylim([0, 1])
     else:
-        pass
+        plt.ylim([min(y) - (max(y) - min(y)) * spacing, max(y) + (max(y) - min(y)) * spacing])
 
-    if waveDataReadout:
-        if isinstance(waveDataReadout, Dict):
-            waveDataReadout = [waveDataReadout]
-        else:
-            pass
-
-        # Check the time sequence of the readout pulse
-        maxNsCtrl = max([waveData['insert_ns'] + waveData['duration_ns'] for waveData in waveDataCtrl])
-        minNsRo = min([waveData['insert_ns'] for waveData in waveDataReadout])
-        assert minNsRo >= maxNsCtrl, 'Applying readout pulse during control sequence is not allowed.'
-
-        sched = numpy.append(waveDataCtrl, waveDataReadout)
+    # configure color and plot
+    if color is None:
+        plt.bar(xList, y, alpha=0.7, linewidth=lineWidth)
     else:
-        sched = waveDataCtrl
+        for aColor in cMap:
+            if aColor[0] == color:
+                plt.bar(xList, y, color=aColor[1], alpha=1, linewidth=lineWidth)
+    plt.xticks(xList, x)
 
-    maxNs = int(numpy.ceil(max([waveData['insert_ns'] + waveData['duration_ns'] for waveData in sched])))
-    maxDt = int(maxNs / dt)
-    xSeq = numpy.zeros(maxDt)
-    ySeq = numpy.zeros(maxDt)
-    roSeq = numpy.zeros(maxDt)
-
-    # Traverse all the time slices.
-    for nowDt in range(0, maxDt):
-        nowNs = nowDt * dt + dt / 2
-    
-        # Traverse all the waveforms
-        for waveData in sched:
-            insertNs = waveData["insert_ns"]
-            endNs = waveData["insert_ns"] + waveData["duration_ns"]
-            if insertNs <= nowNs < endNs:
-                # Calculate the waveforms' amplitudes.
-                waveFunc = waveData["func"]
-                if waveFunc is None:
-                    seq = waveData["sequence"]
-                    realTime = nowNs - waveData["insert_ns"]
-                    if int(realTime / dt) >= len(seq):
-                        currentAmp = seq[-1]
-                    else:
-                        currentAmp = seq[int(realTime / dt)]
-                elif isinstance(waveFunc, str):
-                    currentAmp = play(waveData["func"], nowNs - waveData["insert_ns"], waveData["para"])
-                elif callable(waveFunc):
-                    currentAmp = waveFunc(nowNs - waveData["insert_ns"], waveData["para"])
-                else:
-                    assert False, "Unsupported type of func."
-            
-            if waveData['name'] == 'x':
-                xSeq[nowDt] += currentAmp
-                currentAmp = 0
-            
-            if waveData['name'] == 'y':
-                ySeq[nowDt] += currentAmp
-                currentAmp = 0
-            
-            if waveData['name'] == 'readout':
-                roSeq[nowDt] += currentAmp
-                currentAmp = 0
-            else:
-                currentAmp = 0
-                pass
-
-    ampList = [xSeq, ySeq, roSeq]
-    tList = [numpy.linspace(0, maxNs, len(xSeq)) for _ in range(3)]
-    yLabel = ['Amp (a.u.)' for _ in range(3)]
-    color = ['blue' for _ in range(3)]
-    plotPulse(tList, ampList, xLabel='ns', yLabel=yLabel, title=['x', 'y', 'readout'], color=color)
-
-
-
-
-
+    # draw the line of y = 0
+    plt.axhline(y=0, color='#ccc', linestyle=':', linewidth=lineWidth)
+    plt.show()

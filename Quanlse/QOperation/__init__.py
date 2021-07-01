@@ -23,7 +23,6 @@ from typing import List, Union, Optional, Callable, TYPE_CHECKING
 import numpy
 
 from Quanlse.QPlatform import Error
-from Quanlse import HardwareImplementation, GateTimeDict
 
 if TYPE_CHECKING:
     from Quanlse.QOperation.FixedGate import FixedGateOP
@@ -41,11 +40,19 @@ class QOperation:
 
     def __init__(self, name: Optional[str] = None, bits: Optional[int] = None,
                  matrix: Optional[numpy.ndarray] = None) -> None:
+        """
+        Constructor for QOperation class
+        """
         self.name = name
         self.bits = bits
         self._matrix = matrix
 
     def getMatrix(self) -> numpy.ndarray:
+        """
+        Returns a numpy ndarray
+
+        :return: returned matrix in ndarray
+        """
         if self.__class__.__name__ == 'FixedGateOP':
             return self._matrix
         elif self.__class__.__name__ == 'RotationGateOP':
@@ -57,11 +64,12 @@ class QOperation:
         else:
             raise Error.ArgumentError(f'{self.__class__.__name__} do not have matrix!')
 
-    def _op(self, qRegList: List['QRegStorage'], gateTime: Optional[float]) -> None:
+    def _op(self, qRegList: List['QRegStorage']) -> None:
         """
         Quantum operation base
 
         :param qRegList: quantum register list
+        :return: None
         """
         env = qRegList[0].env
         for qReg in qRegList:
@@ -81,37 +89,10 @@ class QOperation:
         if len(qRegList) != len(set(qReg for qReg in qRegList)):
             raise Error.ArgumentError('QReg of operators in circuit are not repeatable!')
 
-        if self.name == 'CR' and env.hardwareImplementation == HardwareImplementation.CZ:
-            raise Error.ArgumentError("You've chosen cz. This gate is not consistent with your choice.")
-        elif self.name == 'CZ' and env.hardwareImplementation == HardwareImplementation.CR:
-            raise Error.ArgumentError("You've chosen cr. This gate is not consistent with your choice.")
-        elif self.name == 'CNOT':
-            if env.hardwareImplementation == HardwareImplementation.CR:
-                from Quanlse.QOperation import FixedGate, RotationGate
-                RotationGate.RZ(0.25)(qRegList[0], gateTime=GateTimeDict['RZ'])  # Use original gateTime
-                FixedGate.CR(qRegList[0], qRegList[1], gateTime=gateTime)
-                RotationGate.RZ(0.25)(qRegList[1], gateTime=GateTimeDict['RZ'])  # Use original gateTime
-            elif env.hardwareImplementation == HardwareImplementation.CZ:
-                from Quanlse.QOperation import FixedGate
-                FixedGate.H(qRegList[1], gateTime=GateTimeDict['H'])
-                FixedGate.CZ(qRegList[0], qRegList[1])
-                FixedGate.H(qRegList[1], gateTime=GateTimeDict['H'])
-            else:
-                raise Error.ArgumentError(f'UnImplemented Quanlse hardware {env.hardwareImplementation}')
-        elif self.name == 'SWAP':
-            from Quanlse.QOperation import FixedGate
-            FixedGate.CNOT(qRegList[0], qRegList[1], gateTime=env.gateTimeDict['SWAP'])
-            FixedGate.CNOT(qRegList[1], qRegList[0], gateTime=env.gateTimeDict['SWAP'])
-            FixedGate.CNOT(qRegList[0], qRegList[1], gateTime=env.gateTimeDict['SWAP'])
-        else:
-            circuitLine = CircuitLine()
-            circuitLine.data = self
-            circuitLine.qRegIndexList = [qReg.index for qReg in qRegList]
-            if gateTime is not None:
-                circuitLine.gateTime = gateTime
-            else:
-                circuitLine.gateTime = env.gateTimeDict[self.name]
-            env.circuit.append(circuitLine)
+        circuitLine = CircuitLine()
+        circuitLine.data = self
+        circuitLine.qRegIndexList = [qReg.index for qReg in qRegList]
+        env.circuit.append(circuitLine)
 
 
 Operation = Union[
@@ -120,8 +101,22 @@ Operation = Union[
 
 class CircuitLine:
     """
-    Circuit Line
+    This class defines a quantum gate in the quantum circuit model.
+    It specifies two key components to characterize a quantum gate:
+    The gate and its operated qubit indices.
     """
     data: None  # type: Operation
     qRegIndexList: None  # type: List[int]
-    gateTime: 0  # type: float
+
+    def __init__(self, data: Operation = None, qRegIndexList: List[int] = None):
+        r"""
+        Initialize a quantum gate instance.
+
+        :param data: a Quanlse.QOperation.Operation instance,
+                    the quantum gate to be applied.
+        :param qRegIndexList: a list of qubit indices.
+                    If `gate` is a single-qubit
+                    gate, then `qubits` still be a List of the form `[i]`
+        """
+        self.data = data
+        self.qRegIndexList = qRegIndexList

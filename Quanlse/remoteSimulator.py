@@ -1,8 +1,5 @@
 #!/usr/bin/python3
 # -*- coding: utf8 -*-
-"""
-remoteSimulator
-"""
 
 # Copyright (c) 2021 Baidu, Inc. All Rights Reserved.
 #
@@ -17,98 +14,51 @@ remoteSimulator
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from Quanlse.Utils.Hamiltonian import toJson
-from Quanlse.Utils.Waveforms import waveDataToSeq
-from Quanlse.QPlatform.Utilities import dictMatrixToNumpyMatrix
+
+"""
+Simulate the Hamiltonian using the Quanlse remote simulator.
+"""
+
+from numpy import ndarray
+
+from Quanlse.QHamiltonian import QHamiltonian as QHam
+from Quanlse.QWaveform import QJobList, QResult, QJob
 from Quanlse.QRpc import rpcCall
+from Quanlse.QPlatform.Utilities import numpyMatrixToDictMatrix
 
-from typing import Dict, Any, List, Union, Tuple, Callable
 
-
-def remoteSimulatorRunHamiltonian(ham: Dict[str, Any], jobList: List[List[Dict[str, Any]]]) -> List[Dict]:
+def remoteSimulatorRunHamiltonian(ham: QHam, state0: ndarray = None, job: QJob = None,
+                                  jobList: QJobList = None, isOpen=False) -> QResult:
     """
-    Given the Hamiltonian of a quantum system, this function returns the list of time-evolution unitary matrices
-    using Quanlse Cloud Service.
-    This function supports batch pulse simulation - users can submit a job list of multiple jobs.
-    Each job is also a list, and multiple waves can be appended onto this list.
-    On Quanlse Cloud Service, those waves will be added to ``ham``, and ``ham`` will be simulated;
-    the result (including the time-evolution unitary matrix) will be append onto a result list corresponding
-    to ``jobList``.
+    Simulate the Hamiltonian using the Quanlse remote simulator.
 
-    :param ham: the Hamiltonian dictionary
-    :param jobList: job list containing waveform lists
-    :return: a list of result dictionary
-
-    **Example: Scan the amplitudes**
-
-    In this example, ``jobs`` is the list of jobs; ``jobWaves`` is the list of waves for each job. We use
-    ``Quanlse.Utils.Waveforms.makeWaveData()`` to generate wave data, and append the wave data
-    dictionary onto ``jobWaves``.
-
-    .. code-block:: python
-
-            jobs = []
-            for amp in ampList:
-
-                jobWaves = []
-
-                # Add Gaussian wave of X control on the qubit 0
-                jobWaves.append(makeWaveData(ham, "q0-ctrlx", t0=0, t=gateTime, f="gaussian", para={"a": amp}))
-                jobWaves.append(makeWaveData(ham, "q1-ctrlx", t0=0, t=gateTime, f="gaussian", para={"a": amp}))
-
-                # append this job onto the job list
-                jobs.append(jobWaves)
-
-    **Note:**
-
-    Users need to import ``Quanlse.Define`` and set the token by the following code. Token can be acquired from the
-    official website of Quantum Hub: http://quantum-hub.baidu.com.
-
-    .. code-block:: python
-
-            Define.hubToken = '...'
-
+    :param ham: the QHamiltonian object.
+    :param state0: The initial state.
+    :param job: the QJob object.
+    :param jobList: The QJobList object.
+    :param isOpen: Run the simulation of open system using Lindblad master equation if true.
+    :return: the QResult object.
     """
-    _jobListTransformed = []
-    for job in jobList:
-        _jobListTransformed.append(waveDataToSeq(job, ham["circuit"]["dt"]))
-    args = [toJson(ham), _jobListTransformed]
+
+    maxEndTime = None
     kwargs = {}
+    if state0 is not None:
+        kwargs["state0"] = numpyMatrixToDictMatrix(state0)
+    if job is not None:
+        maxEndTime, _ = job.computeMaxTime()
+        kwargs["job"] = job.dump(maxEndTime=maxEndTime)
+    if jobList is not None:
+        maxTimeList = []
+        for job in jobList.jobs:
+            maxTime, _ = job.computeMaxTime()
+            maxTimeList.append(maxTime)
+        maxEndTime = max(maxTimeList)
+        kwargs["jobList"] = jobList.dump(maxEndTime=maxEndTime)
+    if maxEndTime is None:
+        maxEndTime, _ = ham.job.computeMaxTime()
+    kwargs["isOpen"] = isOpen
+
+    args = [ham.dump(maxEndTime=maxEndTime)]
     origin = rpcCall("runHamiltonian", args, kwargs)
-    for result in origin["resultBatch"]:
-        result["unitary"] = dictMatrixToNumpyMatrix(result["unitary"], complex)
-    return origin["resultBatch"]
 
-
-def remoteNoisySimulator(waveDataCtrl: Union[Dict[str, Any], List[Dict[str, Any]]],
-                         anharm: float = -2.1815, dephSigma: float = 0,
-                         ampGamma: float = 0, kappa: float = 0.04,
-                         waveDataReadout: Union[Dict[str, Any], List[Dict[str, Any]]]
-                         = None, shots: int = 512) -> Dict[str, Any]:
-    """
-    Noisy simulator includes dephasing noise and amplitude noise
-    with optional readout simulation.
-
-    :param waveDataCtrl: A dictionary of waveData created by function 'addPulse()'.
-    :param anharm: The anharmonicity of the qubit.
-    :param dephSigma: Dephasing noise.
-    :param ampGamma: Amplitude noise.
-    :param kappa: The reasonator-environment interaction rate.
-    :param waveDataReadout: A dictionary of waveData created by function 'addPulse()'.
-    :param shots: The number of execution of the task.
-    :return: A dictionary of the result, the keys are 'prob0', 'prob1', 'iq_data', 'counts'.
-    """
-
-    args = []
-    kwargs = {
-        "waveDataCtrl": waveDataToSeq(waveDataCtrl),
-        "anharm": anharm,
-        "dephSigma": dephSigma,
-        "ampGamma": ampGamma,
-        "kappa": kappa,
-        "waveDataReadout": waveDataReadout,
-        "shots": shots
-    }
-
-    origin = rpcCall("noisySimulator", args, kwargs)
-    return origin["result"]
+    return QResult.load(origin["result"])

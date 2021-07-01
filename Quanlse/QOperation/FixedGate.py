@@ -40,16 +40,20 @@ class FixedGateOP(QOperation):
     """
 
     def __init__(self, gate: str, bits: int, matrix: Optional[numpy.ndarray]) -> None:
+        """
+        Constructor for FixedGateOP
+        """
         super().__init__(gate, bits, matrix)
 
-    def __call__(self, *qRegList: 'QRegStorage', gateTime: Optional[float] = None) -> None:
-        self._op(list(qRegList), gateTime)
+    def __call__(self, *qRegList: 'QRegStorage') -> None:
+        self._op(list(qRegList))
 
 
 X = FixedGateOP('X', 1,
                 numpy.array([[0. + 0.j, 1. + 0.j],
                              [1. + 0.j, 0. + 0.j]])
                 )
+
 r"""
 Pauli-X operator, also called NOT gate, means flipping the qubit.
 
@@ -244,4 +248,16 @@ SWAP gate.
 On the simulator mode (use inside the simulator): Matrix form:
 
 :math:`SWAP = \begin{bmatrix} 1 & 0  &0 & 0 \\ 0 & 0 & 1 & 0 \\ 0 & 1 & 0 & 0 \\ 0 & 0 & 0 & 1 \end{bmatrix}`
+"""
+
+MS = FixedGateOP('MS', 2,
+                 numpy.array([
+                     [1, 0, 0, 1.j],
+                     [0, 1, 1.j, 0],
+                     [0, 1.j, 1, 0],
+                     [1.j, 0, 0, 1],
+                 ], dtype=complex) / math.sqrt(2)
+                 )
+r"""
+MS gate for Ion.
 """

@@ -23,6 +23,7 @@ import os
 import sys
 
 import Quanlse
+from Quanlse.QPlatform import Error
 
 env = 'prod'
 
@@ -42,7 +43,7 @@ else:
     quantumHubAddr = 'https://quantum-hub.baidu.com/api'
     quantumBucket = 'quantum-task'
 
-sdkVersion = 'Quanlse 1.1.0'
+sdkVersion = 'Quanlse 2.0.0'
 """
 SDK Version
 
