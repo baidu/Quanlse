@@ -201,3 +201,18 @@ def RZ(lamda: 'RotationArgument') -> 'OperationFunc':
     gate = RotationGateOP('RZ', 1, angleList, uGateArgumentList)
     gate.generateMatrix = gate._generateUMatrix()
     return gate
+
+
+def VZ(lamda: 'RotationArgument') -> 'OperationFunc':
+    """
+    VZ Gate
+
+    Single-qubit rotation about the Z-axis by phase shift.
+
+    According to the relation: U3(0, 0, lamda) = VZ(lamda)
+    """
+    angleList = [lamda]
+    uGateArgumentList = [0, 0, lamda]
+    gate = RotationGateOP('VZ', 1, angleList, uGateArgumentList)
+    gate.generateMatrix = gate._generateUMatrix()
+    return gate

@@ -32,16 +32,18 @@ For more details, please visit https://quanlse.baidu.com/#/doc/tutorial-pulse-le
 
 import random
 import copy
-from typing import List, Union, Optional, Dict, Tuple, Iterable, Callable
-from numpy import pi, sqrt, ndarray, zeros, identity, random
+import numpy
+from typing import List, Union, Optional, Dict, Tuple, Callable, Any
+from numpy import pi, sqrt, ndarray, zeros, identity, random, cos, sin, trace, round
 
 from Quanlse.QHamiltonian import QHamiltonian
 from Quanlse.QPlatform import Error
-from Quanlse.QOperator import QOperator, duff, create, destroy, a, adagger, number
-from Quanlse.QWaveform import QJob, square, QWaveform, sequence, \
+from Quanlse.QOperator import QOperator, duff, create, destroy, a, adagger, number, driveX, uWave
+from Quanlse.QWaveform import QJob, square, QWaveform, QJobList, QResult, sequence, \
     QWAVEFORM_FLAG_ALWAYS_ON, QWAVEFORM_FLAG_DO_NOT_CLEAR, QWAVEFORM_FLAG_DO_NOT_PLOT
-from Quanlse.Utils.Functions import tensor
-from Quanlse.Scheduler.Superconduct import SchedulerSuperconduct
+from Quanlse.Utils.Functions import tensor, basis, dagger
+from Quanlse.Scheduler.Superconduct import SchedulerSuperconduct, SchedulerPulseGenerator
+from Quanlse.QPlatform.Error import ArgumentError
 
 
 class PulseModel(SchedulerSuperconduct):
@@ -52,6 +54,7 @@ class PulseModel(SchedulerSuperconduct):
     :param subSysNum: size of the subsystem
     :param sysLevel: the energy levels of the system (support different levels for different qubits)
     :param qubitFreq: qubit frequencies, in 2 pi GHz
+    :param driveFreq: drive frequencies, in 2 pi GHz
     :param qubitAnharm: Anharmonicity for each qubit
     :param dt: sampling time period:
     :param couplingMap: direct coupling structure
@@ -59,7 +62,7 @@ class PulseModel(SchedulerSuperconduct):
     :param T2: T2-dephasing time, in nanoseconds
     :param ampSigma: deviation of the amplitude distortion
     :param betaStd: standard deviation of the relative strength in classical crosstalk
-    :param frame: rotating frame
+    :param frameMode: rotating frame (in qubit frequency)
     :param pulseGenerator: customized pulse generator for scheduler
     """
 
@@ -69,35 +72,41 @@ class PulseModel(SchedulerSuperconduct):
                  qubitFreq: Dict[int, Union[int, float]],
                  qubitAnharm: Dict[int, Union[int, float]],
                  dt: float = 0.2,
+                 driveFreq: Dict[int, Union[int, float]] = None,
                  couplingMap: Optional[Dict[Tuple, Union[int, float]]] = None,
                  T1: Optional[Dict[int, Union[int, float, None]]] = None,
                  T2: Optional[Dict[int, Union[int, float, None]]] = None,
                  ampSigma: Optional[Union[int, float]] = None,
                  betaStd: Optional[Union[int, float]] = None,
-                 frame: Optional[Dict[int, Union[int, float]]] = None,
+                 frameMode: str = 'rot',
                  pulseGenerator: Callable = None):
 
-        self._subSysNum = subSysNum
-        self._sysLevel = sysLevel
-        self._dt = dt
+        self.frameMode = frameMode  # type: str
 
-        self.qubitFreq = qubitFreq  # type: Dict[int, Union[int, float]]
-        self.qubitAnharm = qubitAnharm  # type: Dict[int, Union[int, float]]
-        self.T1 = T1  # type: Optional[Dict[int, Union[int, float]]]
-        self.T2 = T2  # type: Optional[Dict[int, Union[int, float]]]
-        self.ampSigma = ampSigma  # type: Optional[Union[int, float]]
-        self.betaStd = betaStd  # type: Optional[Union[int, float]]
-        self.frame = frame  # type: Optional[Dict[int, Union[int, float]]]
+        self._subSysNum = subSysNum  # type: int
+        self._sysLevel = sysLevel  # type: int
+        self._dt = dt  # type: float
+        self._conf = {}  # type: Dict
+
+        self._qubitFreq = qubitFreq  # type: Dict[int, Union[int, float]]
+        self._driveFreq = {} if driveFreq is None else driveFreq  # type: Dict[int, Union[int, float]]
+        self._qubitAnharm = qubitAnharm  # type: Dict[int, Union[int, float]]
+        self._T1 = T1  # type: Optional[Dict[int, Union[int, float]]]
+        self._T2 = T2  # type: Optional[Dict[int, Union[int, float]]]
         self._couplingMap = couplingMap  # type: Optional[Dict[Tuple, Union[int, float]]]
+        self._pulseGenerator = None  # type: Optional[SchedulerPulseGenerator]
+        self._pulseGeneratorFunc = pulseGenerator  # type: Callable
 
-        _ham = self.createQHamiltonian()
+        super(PulseModel, self).__init__(dt, ham=None, subSysNum=subSysNum,
+                                         sysLevel=sysLevel, generator=None)
 
-        if pulseGenerator is not None:
-            super(PulseModel, self).__init__(dt, ham=_ham, subSysNum=subSysNum,
-                                             sysLevel=sysLevel, pulseGenerator=pulseGenerator(_ham))
-        else:
-            super(PulseModel, self).__init__(dt, ham=_ham, subSysNum=subSysNum,
-                                             sysLevel=sysLevel, pulseGenerator=None)
+        self.createQHamiltonian(frameMode=self.frameMode)
+
+        self.betaStd = betaStd  # type: Optional[Union[int, float]]
+        self.ampSigma = ampSigma  # type: Optional[Union[int, float]]
+
+        if self._pulseGeneratorFunc is not None:
+            self._pulseGenerator = self._pulseGeneratorFunc(self.ham)
 
     @property
     def dim(self) -> int:
@@ -129,7 +138,27 @@ class PulseModel(SchedulerSuperconduct):
         """
         if len(value) != self.subSysNum:
             raise Error.ArgumentError("The number of the frequencies and the number of qubits are not the same.")
+
         self._qubitFreq = value
+        self.createQHamiltonian(frameMode=self.frameMode)
+
+    @property
+    def driveFreq(self) -> Dict[int, Union[int, float]]:
+        """
+        Return the drive frequency of each qubit in the system.
+        """
+        return self._qubitFreq
+
+    @driveFreq.setter
+    def driveFreq(self, value: Dict[int, Union[int, float]]):
+        """
+        Return the drive frequency of each qubit in the system, in 2 * pi * GHz.
+        """
+        if len(value) != self.subSysNum:
+            raise Error.ArgumentError("The number of the frequencies and the number of qubits are not the same.")
+
+        self._driveFreq = value
+        self.createQHamiltonian(frameMode=self.frameMode)
 
     @property
     def qubitAnharm(self) -> Dict[int, Union[int, float]]:
@@ -145,7 +174,9 @@ class PulseModel(SchedulerSuperconduct):
         """
         if len(value) != self.subSysNum:
             raise Error.ArgumentError("The number of the anharmonicities and the number of qubits are not the same.")
+
         self._qubitAnharm = value
+        self.createQHamiltonian(frameMode=self.frameMode)
 
     @property
     def couplingMap(self) -> Optional[Dict[Tuple, Union[int, float]]]:
@@ -164,7 +195,9 @@ class PulseModel(SchedulerSuperconduct):
             for index in indexList:
                 if index not in range(self.subSysNum+1):
                     raise Error.ArgumentError("The number of the frequencies and the number of qubits are not the same.")
+
         self._couplingMap = value
+        self.createQHamiltonian(frameMode=self.frameMode)
 
     @property
     def T1(self) -> Optional[Dict[int, Union[int, float, None]]]:
@@ -184,7 +217,9 @@ class PulseModel(SchedulerSuperconduct):
                     raise Error.ArgumentError("The value of T1 should be a positive real number.")
                 if index not in range(self.subSysNum):
                     raise Error.ArgumentError(f"{index}th-qubit is not defined.")
+
         self._T1 = value
+        self.createQHamiltonian(frameMode=self.frameMode)
 
     @property
     def T2(self) -> Optional[Dict[int, Union[int, float, None]]]:
@@ -204,7 +239,9 @@ class PulseModel(SchedulerSuperconduct):
                     raise Error.ArgumentError("The value of T1 should be a positive real number.")
                 if index not in range(self.subSysNum):
                     raise Error.ArgumentError(f"{index}th-qubit is not defined.")
+
         self._T2 = value
+        self.createQHamiltonian(frameMode=self.frameMode)
 
     def diagMat(self) -> ndarray:
         """
@@ -236,29 +273,47 @@ class PulseModel(SchedulerSuperconduct):
 
         return diagTerm
 
-    def _generateDrift(self, ham: QHamiltonian, setFrame: Dict[int, Union[int, float]] = None) -> None:
+    def _generateDrift(self, ham: QHamiltonian, frameMode: str = 'rot') -> None:
         """
         Generate the drift Hamiltonian.
 
         :param ham: The QHamiltonian object.
-        :param setFrame: Hamiltonian in a rotating frame.
+        :param frameMode: Hamiltonian in a rotating frame.
         :return: None
         """
 
         # Define the rotating frame of the system
 
-        if setFrame:
-            if isinstance(setFrame, Iterable):
-                rotFrame = copy.deepcopy(setFrame)
+        if frameMode == 'lab':
+
+            # create drift term in the lab frame
+
+            if isinstance(self.sysLevel, int):
                 for index, freq in self.qubitFreq.items():
-                    rotFrq = rotFrame[index]
-                    ham.addDrift(operator=number(self.sysLevel), coef=freq - rotFrq, onSubSys=index)
+                    ham.addDrift(operator=number(self.sysLevel), coef=freq, onSubSys=index)
+                for index, anharm in self.qubitAnharm.items():
+                    ham.addDrift(operator=duff(self.sysLevel), coef=0.5 * anharm, onSubSys=index)
+            elif isinstance(self.sysLevel, list):
+                for index, freq in self.qubitFreq.items():
+                    ham.addDrift(operator=number(self.sysLevel[index]), coef=freq, onSubSys=index)
+                for index, anharm in self.qubitAnharm.items():
+                    ham.addDrift(operator=duff(self.sysLevel[index]), coef=0.5 * anharm, onSubSys=index)
+
+        elif frameMode == 'rot':
+
+            # create drift term in the rotating frame
+
+            if isinstance(self.sysLevel, int):
 
                 for index, anharm in self.qubitAnharm.items():
                     ham.addDrift(operator=duff(self.sysLevel), coef=0.5 * anharm, onSubSys=index)
+
+            if isinstance(self.sysLevel, list):
+                for index, anharm in self.qubitAnharm.items():
+                    ham.addDrift(operator=duff(self.sysLevel[index]), coef=0.5 * anharm, onSubSys=index)
+
         else:
-            for index, anharm in self.qubitAnharm.items():
-                ham.addDrift(operator=duff(self.sysLevel), coef=0.5 * anharm, onSubSys=index)
+            raise Error.ArgumentError(f"Unsupported frameMode {frameMode}, only 'lab' and 'rot' are supported.")
 
     def _generateTimeIndepCoupTerm(self, ham: QHamiltonian) -> None:
         r"""
@@ -311,21 +366,21 @@ class PulseModel(SchedulerSuperconduct):
             # Add the time-dependent always-on interaction between qubit i and qubit j
 
             ham.addWave(operators=[adagi, aj], onSubSys=[index[0], index[1]],
-                        waves=square(t0=0, t=0, a=value), omega=deltaOmega, phi=0., tag='coupling',
+                        waves=square(t=0, a=value), freq=deltaOmega, phase=0., tag='coupling', t0=0,
                         flag=QWAVEFORM_FLAG_ALWAYS_ON | QWAVEFORM_FLAG_DO_NOT_CLEAR | QWAVEFORM_FLAG_DO_NOT_PLOT)
 
             ham.addWave(operators=[ai, adagj], onSubSys=[index[0], index[1]],
-                        waves=square(t0=0, t=0, a=value), omega=deltaOmega, phi=0., tag='coupling',
+                        waves=square(t=0, a=value), freq=deltaOmega, phase=0., tag='coupling', t0=0,
                         flag=QWAVEFORM_FLAG_ALWAYS_ON | QWAVEFORM_FLAG_DO_NOT_CLEAR | QWAVEFORM_FLAG_DO_NOT_PLOT)
 
             ham.addWave(operators=[QOperator(name='adagi', matrix=1j * adagi.matrix), aj],
-                        onSubSys=[index[0], index[1]], waves=square(t0=0, t=0, a=value),
-                        omega=deltaOmega, phi=-pi / 2, tag='coupling',
+                        onSubSys=[index[0], index[1]], waves=square(t=0, a=value),
+                        freq=deltaOmega, phase=-pi / 2, tag='coupling', t0=0,
                         flag=QWAVEFORM_FLAG_ALWAYS_ON | QWAVEFORM_FLAG_DO_NOT_CLEAR | QWAVEFORM_FLAG_DO_NOT_PLOT)
 
             ham.addWave(operators=[QOperator(name='ai', matrix=-1j * ai.matrix), adagj],
-                        onSubSys=[index[0], index[1]], waves=square(t0=0, t=0, a=value),
-                        omega=deltaOmega, phi=-pi / 2, tag='coupling',
+                        onSubSys=[index[0], index[1]], waves=square(t=0, a=value),
+                        freq=deltaOmega, phase=-pi / 2, tag='coupling', t0=0,
                         flag=QWAVEFORM_FLAG_ALWAYS_ON | QWAVEFORM_FLAG_DO_NOT_CLEAR | QWAVEFORM_FLAG_DO_NOT_PLOT)
 
     def _setDecoherence(self, ham: QHamiltonian) -> None:
@@ -448,18 +503,19 @@ class PulseModel(SchedulerSuperconduct):
                     if isinstance(waves, QWaveform):
                         waves = [waves]
                     for wave in waves:
-                        if wave.phi is None:
-                            phi = 0
+                        if wave.phase is None:
+                            phase = 0
                         else:
-                            phi = copy.deepcopy(wave.phi)
+                            phase = copy.deepcopy(wave.phase)
 
-                        if wave.omega is not None:
-                            omega = copy.deepcopy(wave.omega)
+                        if wave.freq is not None:
+                            freq = copy.deepcopy(wave.freq)
                         else:
-                            omega = 0
+                            freq = 0
 
                         job.addWave(operators=op, onSubSys=j, waves=wave, strength=beta,
-                                    omega=omega, phi=phi + phaseLag, tag='cross-talk', flag=QWAVEFORM_FLAG_DO_NOT_PLOT)
+                                    freq=freq, phase=phase + phaseLag, tag='cross-talk',
+                                    flag=QWAVEFORM_FLAG_DO_NOT_PLOT)
 
     def _addAmpNoise(self, job: QJob) -> None:
         r"""
@@ -483,43 +539,47 @@ class PulseModel(SchedulerSuperconduct):
                 ampNoise = noise * amp  # Define the distortion to the pulse
                 newSeq.append(ampNoise)
 
-            job.addWave(name=key, waves=sequence(0, newSeq), tag='amplitude-noise')
+            job.addWave(name=key, waves=sequence(newSeq), t0=0, tag='amplitude-noise')
 
-    def createQHamiltonian(self, frame: str = "rot") -> QHamiltonian:
-
+    def createQHamiltonian(self, frameMode: str = "rot") -> QHamiltonian:
         r"""
         Generate a QHamiltonian object based on the physics model and a QJob object.
 
-        :param frame: the rotating frame we choose. The default setting is rotating frame being in the qubits
+        :param frameMode: the rotating frame we choose. The default setting is rotating frame being in the qubits
             frequencies.
-
         :return: a QHamiltonian object.
         """
 
         # Initialize the hamiltonian
-
         ham = QHamiltonian(subSysNum=self.subSysNum, sysLevel=self.sysLevel, dt=self.dt)
 
         # Create the system Hamiltonian in the lab frame
-
-        if frame == "lab":
-
-            self._generateDrift(ham)
+        if frameMode == "lab":
+            # Create the system Hamiltonian in the lab frame
+            self._generateDrift(ham, frameMode='lab')
             if self.couplingMap is not None:
                 self._generateTimeIndepCoupTerm(ham)
             self._setDecoherence(ham)
-
-        # Create the system Hamiltonian in the rotating frame of qubit frequency
-
-        elif frame == "rot":
-
+        elif frameMode == "rot":
+            # Create the system Hamiltonian in the rotating frame of qubit frequency
             self._generateDrift(ham)
             self._setDecoherence(ham)
-
             if self.couplingMap is not None:
                 self._generateCoupTerm(ham)
+        else:
+            raise Error.ArgumentError(f"Unsupported frameMode {frameMode}, only 'lab' and 'rot' are supported.")
 
-        return ham
+        self.ham = ham
+
+        if self._driveFreq is not None:
+            # Set the local oscillator
+            for qIdx in self._driveFreq.keys():
+                self.ham.job.setLO(uWave, qIdx, freq=self._driveFreq[qIdx])
+
+        if self._pulseGeneratorFunc is not None:
+            self._pulseGenerator = self._pulseGeneratorFunc(self.ham)
+
+        return self.ham
 
     def getSimJob(self, job: QJob, noise: bool = True) -> QJob:
         r"""
@@ -551,4 +611,394 @@ class PulseModel(SchedulerSuperconduct):
                 self._addCrossTalk(simJob)
 
         return simJob
+
+    def simulate(self, job: QJob = None, state0: ndarray = None, jobList: QJobList = None,
+                 measure: List[int] = None, shot: int = None, options: Any = None) -> QResult:
+        """
+        Calculate the unitary evolution operator with a given Hamiltonian. This function supports
+        both single-job and batch-job processing.
+
+        :param job: the QJob object to simulate.
+        :param state0: the initial state vector. If None is given, this function will return the time-ordered
+                       evolution operator, otherwise returns the final state vector.
+        :param jobList: a job list containing the waveform list
+        :param measure: indicates the qubit indexes for measurement
+        :param shot: return the population of the eigenstates when ``shot`` is provided
+        :param options: options pass to the runner function
+        :return: result dictionary (or a list of result dictionaries when ``jobList`` is provided)
+
+        This function does provide the option of simulating on local devices. However, Quanlse also provides
+        cloud computing services which are significantly faster.
+
+        **Example 1** (single-job processing):
+
+        If ``jobList`` is None, the waveforms in ham will be used for simulation, and return a result dictionary.
+
+        .. code-block:: python
+
+                result = ham.simulate()
+
+        **Example 2** (batch-job processing):
+
+        If ``jobList`` is not None, simulation will use the waveform list for batch-job processing provided in
+        jobList, and return a list of result dictionaries.
+
+        .. code-block:: python
+
+                result = ham.simulate(ham, jobList=jobs)
+
+        Here, jobs is a QJobList object, indicating the the waveforms to be used.
+        """
+
+        if self.frameMode == 'lab':
+            if state0 is None:
+                state0 = basis(self.dim, 0)
+            if shot is None:
+                shot = 1000
+
+        _useHamSimulator = True
+        
+
+        # Simulate the QJobs
+        if _useHamSimulator:
+            result = self._ham.simulate(job=job, state0=state0, jobList=jobList, shot=shot, adaptive=True)
+        else:
+            raise Error.RuntimeError('Not implemented')
+
+        # Measure the population
+        if measure is not None:
+            if state0 is not None:
+                pass
+            else:
+                raise ArgumentError("When 'measure' is given, you must input 'state0' or 'shot'!")
+
+        return result
+
+
+class ReadoutPulse:
+    """
+    A object contains the readout pulses to probe the resonator for qubit readout and demodulation.
+
+    :param driveStrength: drive strength of the readout pulse.
+    :param driveFreq: drive frequency of the readout pulse.
+    :param loFreq: local oscillator's frequency for demodulation.
+    """
+
+    def __init__(self, driveStrength: Dict[int, Any], driveFreq: Dict[int, Any], loFreq: Union[int, float]):
+
+        self._driveStrength = driveStrength
+        self._driveFreq = driveFreq
+        self._loFreq = loFreq
+
+    @property
+    def driveStrength(self) -> Dict[int, Any]:
+        """
+        Drive strength of readout pulse.
+        """
+        return self._driveStrength
+
+    @driveStrength.setter
+    def driveStrength(self, value: Dict[int, Any]):
+        """
+        Define the drive strength of readout pulse.
+        """
+        self._driveStrength = value
+
+    @property
+    def driveFreq(self) -> Dict[int, Any]:
+        """
+        Return the readout frequencies.
+        """
+        return self._driveFreq
+
+    @driveFreq.setter
+    def driveFreq(self, value: Dict[int, float]):
+        """
+        Define the drive frequencies of readout pulse.
+        """
+        self._driveFreq = value
+
+    @property
+    def loFreq(self):
+        """
+        Carrier frequency generated by the local oscillator of signal demodulation.
+        """
+        return self._loFreq
+
+    @loFreq.setter
+    def loFreq(self, value: float):
+        """
+        Set the carrier frequency generated by the local oscillator for signal demodulation.
+        """
+        self._loFreq = value
+
+    def setFreq(self, index: int, freq: Union[int, float]):
+        """
+        Set the measurement channel's drive frequency of specified qubit.
+        """
+        self.driveFreq[index] = freq
+
+    def setStrength(self, index: int, strength: Union[int, float]):
+        """
+        Set the strength of the measurement channel of specified qubit.
+        """
+
+        self.driveStrength[index] = strength
+
+
+class ReadoutModel:
+    """
+    Basic class of readout simulation model, contains hardware information of the readout cavity.
+
+    :param pulseModel: physics model of the simulator.
+    :param resonatorFreq: bare frequencies of the resonators.
+    :param level: energy levels of the resonators.
+    :param coupling: qubit-resonator coupling strength.
+    :param dissipation: dissipation parameter of the resonator.
+    :param gain: the gain of the amplification.
+    :param dt: sampling period of the AWG.
+    :param impedance: impedance of the transmission line.
+    :param conversionLoss: the conversion loss of the transmission line.
+    """
+
+    def __init__(self,
+                 pulseModel: PulseModel,
+                 resonatorFreq: Dict[int, float],
+                 level: int,
+                 coupling: Dict[int, float],
+                 dissipation: Union[int, float],
+                 gain: Union[int, float],
+                 dt: float = 1.,
+                 impedance: float = 1.,
+                 conversionLoss: float = 1.):
+        """
+        The constructor of the readout model.
+        """
+
+        self.pulseModel = pulseModel  # type: PulseModel
+        self.resonatorFreq = resonatorFreq  # type: Dict[int, float]
+        self.dissipation = dissipation  # type:  Union[int, float]
+        self.gain = gain  # type: Union[int, float]
+        self.level = level  # type: int
+        self.coupling = coupling  # type: Dict[int, float]
+        self.dt = dt  # type: float
+        self.impedance = impedance  # type: float
+        self.conversionLoss = conversionLoss  # type: float
+
+        self._readoutPulse = None  # type: Optional[ReadoutPulse]
+
+    @property
+    def resonatorFreq(self) -> Dict[int, float]:
+        """
+        Return the resonator frequencies.
+        """
+
+        return self._resonatorFreq
+
+    @resonatorFreq.setter
+    def resonatorFreq(self, value: Dict[int, float]):
+        """
+        Set the resonator frequencies.
+        """
+        qubitIdx = self.pulseModel.qubitFreq.keys()
+        for resonatorIdx in value.keys():
+            if resonatorIdx not in qubitIdx:
+                raise Error.ArgumentError("Resonator indexes not found in qubit indexes")
+
+            self._resonatorFreq = value
+
+    @property
+    def readoutPulse(self) -> ReadoutPulse:
+        """
+        The multiplexing pulse data for qubit readout.
+        """
+        return self._readoutPulse
+
+    @readoutPulse.setter
+    def readoutPulse(self, value: ReadoutPulse):
+        """
+        Set the measure channel for the readout
+        """
+
+        self._readoutPulse = value
+
+    def _createHam(self, idx: int, driveFreq: Union[int, float]) -> QHamiltonian:
+        """
+        Return the hamiltonian of qubit-resonator circuit model according to the qubit index and drive frequency.
+
+        :param idx: index of the qubit.
+        :param driveFreq: drive frequency.
+
+        :return: QHamiltonian in the rotating frame.
+        """
+        qubitFreq = self.pulseModel.qubitFreq
+        qubitAnharm = self.pulseModel.qubitAnharm
+        resonatorFreq = self.resonatorFreq
+        qubitLevel = self.pulseModel.sysLevel
+        cList = {1: [sqrt(self.dissipation) * a(self.level)]}
+
+        ham = QHamiltonian(subSysNum=2, sysLevel=[qubitLevel, self.level], dt=self.dt)
+        ham.addDrift(operator=number(qubitLevel), onSubSys=0, coef=qubitFreq[idx] - driveFreq)
+        ham.addDrift(operator=duff(qubitLevel), onSubSys=0, coef=0.5 * qubitAnharm[idx])
+        ham.addDrift(operator=number(self.level), onSubSys=1, coef=resonatorFreq[idx] - driveFreq)
+        ham.addCoupling(onSubSys=[0, 1], g=self.coupling[idx])
+        ham.setCollapse(cList)
+
+        return ham
+
+    def _createHamLab(self, idx: int) -> QHamiltonian:
+        """
+        Return the hamiltonian of qubit-resonator circuit model according to the qubit index and drive frequency.
+
+        :param idx: index of the qubit.
+
+        :return: QHamiltonian in the lab frame.
+        """
+
+        # Extract information from PulseModel object
+        qubitFreq = self.pulseModel.qubitFreq
+        qubitAnharm = self.pulseModel.qubitAnharm
+        resonatorFreq = self.resonatorFreq
+        qubitLevel = self.pulseModel.sysLevel
+        cList = {1: [sqrt(self.dissipation) * a(self.level)]}
+
+        # Create lab frame QHamiltonian object of a coupled transmon-resonator system
+        ham = QHamiltonian(subSysNum=2, sysLevel=[qubitLevel, self.level], dt=self.dt)
+        ham.addDrift(operator=number(qubitLevel), onSubSys=0, coef=qubitFreq[idx])
+        ham.addDrift(operator=duff(qubitLevel), onSubSys=0, coef=0.5 * qubitAnharm[idx])
+        ham.addDrift(operator=number(self.level), onSubSys=1, coef=resonatorFreq[idx])
+        ham.addCoupling(onSubSys=[0, 1], g=self.coupling[idx])
+        ham.setCollapse(cList)
+
+        return ham
+
+    def _readoutJob(self, amp: Union[int, float], duration: Union[int, float]) -> QJob:
+        """
+        Return readout pulse in rotating frame at driving frequency.
+
+        :param amp: amplitude of the readout job.
+        :param duration: the duration of the pulse.
+
+        :return: QJob.
+        """
+        qubitLevel = self.pulseModel.sysLevel
+        job = QJob(subSysNum=2, sysLevel=[qubitLevel, self.level], dt=self.dt)
+        wave = square(t=duration, a=amp)
+        job.addWave(operators=driveX, onSubSys=1, waves=wave, t0=0.)
+        return job
+
+    def simulate(self, duration: Union[int, float], resIdx: Optional[List[int]] = None,
+                 state: 'str' = 'ground') -> Dict:
+        """
+        Simulate the state evolution of the qubit-resonator system using Jaynes-Cumming model.
+
+        :param duration: pulse duration of the measurement.
+        :param resIdx: indexes of the resonator the pulse acted on.
+        :param state: qubit state prepared in ground state or in excited state, Optional parameter 'ground' or 'excited'
+
+        :return: None.
+        """
+
+        if self._readoutPulse is None:
+            raise Error.ArgumentError("You need to define object of class: ReadoutPulse")
+
+        # Extract information for qubit readout simulation
+        k = self.conversionLoss
+        kappa = self.dissipation
+        g = self.gain
+        z = self.impedance
+        qubitLevel = self.pulseModel.sysLevel
+
+        # check if the qubit index exists
+        if resIdx is not None:
+            for idx in resIdx:
+                if idx not in range(self.pulseModel.subSysNum):
+                    raise Error.ArgumentError(f"Qubit index {idx} not found")
+        else:
+            resIdx = range(self.pulseModel.subSysNum)
+
+        readoutPulse = self.readoutPulse
+
+        if state == 'ground':
+            psi = tensor(basis(qubitLevel, 0), basis(self.level, 0))
+        elif state == 'excited':
+            psi = tensor(basis(qubitLevel, 1), basis(self.level, 0))
+        else:
+            raise Error.ArgumentError("The input qubit state is 'ground' or 'excited'")
+
+        # set the frequency of local oscillator for demodulation
+        omegaLo = readoutPulse.loFreq
+
+        # initialize a dict object to record the evolution
+        rhoHistory = {}
+
+        # define annihilation and creation operators
+        a = tensor([identity(qubitLevel), destroy(self.level).matrix])
+        adag = dagger(a)
+
+        # define quadrature operators
+        x = 0.5 * (adag + a)
+        p = 1j * 0.5 * (adag - a)
+
+        viRawList = {}
+        vqRawList = {}
+        viList = {}
+        vqList = {}
+        rhoList = {}
+
+        # simulate the readout dynamic of the designated qubits
+        for idx in resIdx:
+
+            # run simulation of the given qubit
+            ham = self._createHam(idx=idx, driveFreq=readoutPulse.driveFreq[idx])
+            job = self._readoutJob(amp=readoutPulse.driveStrength[idx], duration=duration)
+            res0 = ham.simulate(state0=psi, job=job, isOpen=True, recordEvolution=True)
+
+            # Append the evolution of density matrix to idx-th qubit
+            rhoHistory[idx] = res0[0]['evolution_history']
+
+            _, maxDt = job.computeMaxTime()
+            timeIdx = range(0, int(maxDt))
+
+            # Calculate the intermediate frequency
+            omegaRf = self.readoutPulse.driveFreq[idx]
+
+            omegaIf = abs(omegaLo - omegaRf)
+
+            viRawList[idx] = []
+            vqRawList[idx] = []
+
+            vif = k * readoutPulse.driveStrength[idx] * sqrt(kappa * g * z * omegaRf / 2)
+
+            # Record the raw data of vi, vq quadratures for each dt
+            for dtIdx in timeIdx:
+
+                nowTime = dtIdx * self.dt
+                nowRho = rhoHistory[idx][dtIdx]
+
+                vi = vif * (x * cos(omegaIf * nowTime) - p * sin(omegaIf * nowTime))
+
+                vq = - vif * (p * cos(omegaIf * nowTime) + x * sin(omegaIf * nowTime))
+
+                viRawList[idx].append(trace(vi @ nowRho).real)
+                vqRawList[idx].append(trace(vq @ nowRho).real)
+
+            viList[idx] = trace(vif * x @ rhoHistory[idx][-1]).real
+            vqList[idx] = trace(-vif * p @ rhoHistory[idx][-1]).real
+
+            rhoList[idx] = rhoHistory[idx][-1]
+
+        # Return the result in the form of dictionary data type
+        readoutData = {'vi': viList,
+                       'vq': vqList,
+                       'viRaw': viList,
+                       'vqRaw': vqList,
+                       'index': resIdx,
+                       'duration': duration,
+                       'dt': self.dt,
+                       'loFreq': omegaLo,
+                       'rho': rhoList}
+
+        return readoutData
+
 

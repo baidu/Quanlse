@@ -17,7 +17,7 @@
 Pulse Generator for QuanlseSchedulerSuperconduct (Randomized Benchmarking).
 """
 
-from Quanlse.Scheduler.Superconduct import DefaultPulseGenerator
+from Quanlse.Scheduler.Superconduct import GeneratorCloud
 from Quanlse.QOperation import CircuitLine
 from Quanlse.QWaveform import QJob
 from Quanlse.QHamiltonian import QHamiltonian as QHam
@@ -33,6 +33,7 @@ def generate1QClifford(ham: QHam = None, cirLine: CircuitLine = None, scheduler:
 
     :param ham: QHam object containing the system information
     :param cirLine: a CircuitLine object containing the gate information
+    :param scheduler: the instance of Quanlse Scheduler Superconducting
     :return: returned QJob object
     """
     subHam = ham.subSystem(cirLine.qRegIndexList)
@@ -58,11 +59,11 @@ def SingleQubitCliffordPulseGenerator(ham: QHam) -> SchedulerPulseGenerator:
     """
     generator = SchedulerPulseGenerator(ham)
     gateList1q = ['X', 'Y', 'Z', 'H', 'S', 'T', 'RX', 'RY', 'RZ', 'W', 'SQRTW', 'U']
-    generator.addGenerator(gateList1q, DefaultPulseGenerator.generate1Q)
+    generator.addGenerator(gateList1q, GeneratorCloud.generate1Q)
     gateList1QCliff = ['C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7', 'C8', 'C9', 'C10', 'C11', 'C12', 'C13', 'C14', 'C15',
                        'C16', 'C17', 'C18', 'C19', 'C20', 'C21', 'C22', 'C23', 'C24', 'Cinv']
     generator.addGenerator(gateList1QCliff, generate1QClifford)
-    generator.addGenerator(['CR'], DefaultPulseGenerator.generateCr)
-    generator.addGenerator(['CZ'], DefaultPulseGenerator.generateCz)
-    generator.addGenerator(['ISWAP'], DefaultPulseGenerator.generateISWAP)
+    generator.addGenerator(['CR'], GeneratorCloud.generateCr)
+    generator.addGenerator(['CZ'], GeneratorCloud.generateCz)
+    generator.addGenerator(['ISWAP'], GeneratorCloud.generateISWAP)
     return generator

@@ -49,13 +49,13 @@ Since CZ gates can be used to construct a CNOT gate easily by using only two oth
 single-qubit gates, Quanlse's Scheduler offers this way to construct a CNOT gate
 in a quantum circuit.
 """
-
+import copy
 from typing import List
 
 from Quanlse.Scheduler import Scheduler
 from Quanlse.QHamiltonian import QHamiltonian as QHam
 from Quanlse.Scheduler.SchedulerPulseGenerator import SchedulerPulseGenerator
-from Quanlse.Scheduler.Superconduct.DefaultPulseGenerator import defaultPulseGenerator
+from Quanlse.Scheduler.SchedulerPipeline import SchedulerPipeline
 
 
 class SchedulerSuperconduct(Scheduler):
@@ -64,21 +64,33 @@ class SchedulerSuperconduct(Scheduler):
 
     :param dt: AWG sampling time
     :param ham: the QHamiltonian object.
-    :param pulseGenerator: the pulseGenerator object.
+    :param generator: the pulseGenerator object.
     :param subSysNum: size of the subsystem
     :param sysLevel: the energy levels of the system (support different levels for different qubits)
     """
-    def __init__(self, dt: float = None, ham: QHam = None, pulseGenerator: SchedulerPulseGenerator = None,
-                 subSysNum: int = None, sysLevel: int = None):
+    def __init__(self, dt: float = None, ham: QHam = None, generator: SchedulerPulseGenerator = None,
+                 pipeline: SchedulerPipeline = None, subSysNum: int = None, sysLevel: int = None):
         """
         Constructor for SchedulerSuperconduct object
         """
         # Initialization
-        super().__init__(dt, ham, pulseGenerator, subSysNum, sysLevel)
+        super().__init__(dt, ham, generator, pipeline, subSysNum, sysLevel)
 
-        if ham is not None:
-            if self._pulseGenerator is None:
-                self._pulseGenerator = defaultPulseGenerator(self._ham)
+        # Add the pulse generator
+        if self._pulseGenerator is None:
+            if ham is not None:
+                from Quanlse.Scheduler.Superconduct.GeneratorCloud import generatorCloud
+                self._pulseGenerator = generatorCloud(self._ham)
+        else:
+            self._pulseGenerator = copy.deepcopy(generator)
+
+        # Add the pipeline
+        if pipeline is not None:
+            del self._pipeline
+            self._pipeline = copy.deepcopy(pipeline)
+        else:
+            from Quanlse.Scheduler.Superconduct.PipelineLeftAligned import leftAligned
+            self.pipeline.addPipelineJob(leftAligned)
 
         # Set the local oscillator information
         self._subSysLO = []  # type: List[List[float]]

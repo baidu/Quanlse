@@ -48,9 +48,10 @@ At present, Quanlse Scheduler support two different quantum platforms:
 For more details, please visit https://quanlse.baidu.com/#/doc/tutorial-scheduler.
 """
 
-import sys
 import copy
 from typing import List, Union, Optional, Dict, Any
+
+import numpy
 
 from Quanlse.QHamiltonian import QHamiltonian as QHam
 from Quanlse.QOperation.FixedGate import FixedGateOP
@@ -60,120 +61,7 @@ from Quanlse.QRegPool import QRegPool
 from Quanlse.QOperation import Error, CircuitLine
 from Quanlse.Scheduler.SchedulerPipeline import SchedulerPipeline
 from Quanlse.Scheduler.SchedulerPulseGenerator import SchedulerPulseGenerator
-from Quanlse.QOperator import QOperator
-
-
-class GatePulsePair:
-    """
-    A gate with its corresponding pulses.
-
-    :param cirLine: quantum gate in the quantum circuit model.
-    :param pulses: QJob object with corresponding pulses.
-    """
-
-    def __init__(self, cirLine: CircuitLine, pulses: QJob = None):
-        """ Initialization """
-        # Set properties
-        self._pulses = None  # type: Optional[QJob]
-        self._cirLine = None  # type: Optional[CircuitLine]
-        self._onSubSys = []  # type: List[int]
-        self._t = 0.0  # type: float
-
-        # Set objects
-        self.cirLine = copy.deepcopy(cirLine)
-        self.pulses = copy.deepcopy(pulses)
-
-    def __eq__(self, other):
-        """ Operator == """
-        return self._compareObj(other)
-
-    def __ne__(self, other):
-        """ Operator != """
-        return not self._compareObj(other)
-
-    @property
-    def pulses(self) -> Union[QJob, None]:
-        """
-        Get pulses property
-        """
-        return self._pulses
-
-    @pulses.setter
-    def pulses(self, item: Optional[QJob]):
-        """
-        Set pulses property
-        """
-        if item is not None:
-            self._pulses = copy.deepcopy(item)
-            # pulse duration
-            self._t, _ = self.pulses.computeMaxTime()
-            # Generate onSubSys
-            onSubSys = []
-            for opKey in self.pulses.ctrlOperators.keys():
-                ops = self.pulses.ctrlOperators[opKey]
-                if isinstance(ops, list):
-                    for op in ops:
-                        onSubSys.append(op.onSubSys)
-                elif isinstance(ops, QOperator):
-                    onSubSys.append(ops.onSubSys)
-
-            onSubSys = list(set(onSubSys) | set(self.cirLine.qRegIndexList))
-            onSubSys.sort()
-            self._onSubSys = onSubSys
-
-    @property
-    def t(self) -> float:
-        """
-        Pulse duration
-        """
-        return self._t
-
-    @property
-    def onSubSys(self) -> List[int]:
-        """
-        The sub-systems which the pulses work on.
-        """
-        return self._onSubSys
-
-    @property
-    def cirLine(self):
-        """
-        Get cirLine property
-        """
-        return self._cirLine
-
-    @cirLine.setter
-    def cirLine(self, item):
-        """
-        Set cirLine property
-        """
-        self._cirLine = copy.deepcopy(item)
-
-    def _compareObj(self, other):
-        """
-        Compare two GatePulsePair object.
-        """
-        if not isinstance(other, GatePulsePair):
-            raise Error.ArgumentError(f"GatePulsePair object can not compare with a {type(other)}.")
-        if isinstance(other.cirLine.data, FixedGateOP) and isinstance(self.cirLine.data, RotationGateOP):
-            return False
-        if isinstance(other.cirLine.data, RotationGateOP) and isinstance(self.cirLine.data, FixedGateOP):
-            return False
-        if other.cirLine.data.name != self.cirLine.data.name:
-            return False
-        if other.cirLine.qRegIndexList != self.cirLine.qRegIndexList:
-            return False
-        if isinstance(self.cirLine.data, RotationGateOP):
-            argLen = len(other.cirLine.data.uGateArgumentList)
-            for idx in range(argLen):
-                verify = abs(other.cirLine.data.uGateArgumentList[idx] -
-                             self.cirLine.data.uGateArgumentList[idx])
-                if verify > sys.float_info.epsilon:
-                    return False
-        return True
-
-    def hasPulse(self):
-        return True if self.pulses is not None else False
+from Quanlse.Scheduler.GatePulsePair import GatePulsePair
 
 
 class Scheduler:
@@ -185,10 +73,12 @@ class Scheduler:
     :param pulseGenerator: the pulseGenerator object.
     :param subSysNum: size of the subsystem
     :param sysLevel: the energy levels of the system (support different levels for different qubits)
+    :param savePulse: save the pulse in cache
     """
 
-    def __init__(self, dt: float = None, ham: QHam = None, pulseGenerator: SchedulerPulseGenerator = None,
-                 subSysNum: int = None, sysLevel: int = None):
+    def __init__(self, dt: float = None, ham: QHam = None, generator: SchedulerPulseGenerator = None,
+                 pipeline: SchedulerPipeline = None, subSysNum: int = None, sysLevel: int = None,
+                 savePulse: bool = True):
         """
         Initialization
         """
@@ -203,23 +93,26 @@ class Scheduler:
         else:
             self._subSysNum = 1  # type: int
 
+        # The quantum register
         self.Q = QRegPool(self)  # type: QRegPool
+
+        # The list for saving the quantum circuit
         self._circuit = []  # type: List['CircuitLine']
+
+        # The configuration dictionary
         self._conf = {}  # type: Dict[str, Any]
+
+        # Sampling duration of AWG (arbitrary wave generator)
         self._dt = dt  # type: float
 
-        # The vault for store the pulses of the fixed gates.
+        # The vault for store the pulses of the fixed gates
         self._pulseCache = []  # type: List[GatePulsePair]
-        # The scheduling pipeline.
-        self._pipeline = SchedulerPipeline()  # type: SchedulerPipeline
-        self._tempCtrlOperators = {}  # type: Dict[str, Any]
 
-        if pulseGenerator is not None:
-            # If ham is not None, it means that we need a generator to make pulses.
-            # The pulse generator, default generator is Quanlse Maker.
-            self._pulseGenerator = pulseGenerator
-        else:
-            self._pulseGenerator = None
+        # The time padding of the pulses of adjacent quantum gates
+        self.padding = 0.0  # type: float
+
+        # Save the control operators
+        self._tempCtrlOperators = {}  # type: Dict[str, Any]
 
         # The QHam object, this is not necessary
         self._ham = None  # type: Optional[QHam]
@@ -228,6 +121,21 @@ class Scheduler:
             self._ham.dt = dt
             self._subSysNum = ham.subSysNum
             self._sysLevel = ham.sysLevel
+
+        # Add the pulse generator
+        if generator is not None:
+            self._pulseGenerator = generator  # type: Optional[SchedulerPulseGenerator]
+        else:
+            self._pulseGenerator = None  # type: Optional[SchedulerPulseGenerator]
+
+        # If save the pulse for quantum gates in cache
+        self._savePulse = savePulse  # type: bool
+
+        # Add the pipeline
+        if pipeline is not None:
+            self._pipeline = pipeline  # type: SchedulerPipeline
+        else:
+            self._pipeline = SchedulerPipeline()  # type: SchedulerPipeline
 
         # The QJob object, this is not necessary
         self._initializeQJob(dt, subSysNum, sysLevel)
@@ -254,6 +162,20 @@ class Scheduler:
         if self._pipeline is not None:
             del self._pipeline
         self._pipeline = pipeline
+
+    @property
+    def savePulse(self) -> bool:
+        """
+        If save the pulse for quantum gates in cache
+        """
+        return self._savePulse
+
+    @savePulse.setter
+    def savePulse(self, value: bool):
+        """
+        If save the pulse for quantum gates in cache
+        """
+        self._savePulse = value
 
     @property
     def subSysNum(self) -> int:
@@ -297,6 +219,13 @@ class Scheduler:
         Pulse cache
         """
         return self._pulseCache
+
+    @property
+    def pulseGenerator(self) -> Optional[SchedulerPulseGenerator]:
+        """
+        Pulse cache
+        """
+        return self._pulseGenerator
 
     @pulseCache.setter
     def pulseCache(self, obj: List[GatePulsePair]):
@@ -399,6 +328,35 @@ class Scheduler:
                 return pair
         return None
 
+    def getMatrix(self) -> numpy.ndarray:
+        """
+        Return the full matrix of circuit.
+        """
+        dim = 2 ** self.subSysNum
+        # Initialize the matrix
+        cirMat = numpy.identity(dim)
+        # Traverse the circuitLine
+        for cir in self.circuit:
+            # Obtain basic data
+            _mat = cir.data.getMatrix()
+            _onQubits = cir.qRegIndexList
+            if max(_onQubits) >= self.subSysNum:
+                raise Error.ArgumentError("Qubit index(es) exceeds the scheduler's subSysNum.")
+            if 1 <= len(_onQubits) <= 2:
+                if _mat.shape[0] != 2 ** len(_onQubits):
+                    raise Error.ArgumentError(f"The matrix of {len(_onQubits)}-qubit gate must be {2 ** len(_onQubits)}"
+                                              f"-dimensional, however its dimension is {_mat.shape[0]}.")
+            else:
+                raise Error.ArgumentError("Only single- or two-qubit gates are supported!")
+            if len(_onQubits) > 1 and abs(_onQubits[0] - _onQubits[1]) > 1:
+                raise Error.ArgumentError("The indexes of two qubit gates must be close.")
+            # Generate the matrix
+            _preIdm = numpy.identity(2 ** min(_onQubits))
+            _postIdm = numpy.identity(2 ** (self.subSysNum - max(_onQubits) - 1))
+            cirMat = numpy.kron(numpy.kron(_preIdm, _mat), _postIdm) @ cirMat
+
+        return cirMat
+
     def plot(self) -> None:
         """
         Plot the pulses.
@@ -428,6 +386,10 @@ class Scheduler:
         :return: None
         """
         self._circuit = []
+        if self._ham is not None:
+            self._ham.job.clearWaves()
+        elif self._job is not None:
+            self._job.clearWaves()
 
     def clearCache(self) -> None:
         """
@@ -443,24 +405,29 @@ class Scheduler:
 
         :return: a scheduled QJob object
         """
-
         # Step 1: generate pulses for the GatePulsePair instances
         # When self._ham is None, it means that the Scheduler does not need to
         # generate pulses for the CircuitLine instances.
         if self._pulseGenerator is not None:
-            for cirLine in self.circuit:
-                foundPair = self.findGatePulsePair(cirLine)
-                if foundPair is None or foundPair.pulses is None:
-                    pulseJob = self._pulseGenerator(cirLine, self)
-                    self.setGatePulsePair(cirLine, pulseJob)
+            if self.savePulse:
+                for cirLine in self.circuit:
+                    foundPair = self.findGatePulsePair(cirLine)
+                    if foundPair is None or foundPair.pulses is None:
+                        pulseJob = self._pulseGenerator(cirLine, self)
+                        self.setGatePulsePair(cirLine, pulseJob)
         else:
             raise Error.ArgumentError("No pulseGenerator is set, hence cannot generate pulse.")
-        _tmpJob = self._job if self._ham is None else self._ham.job
+
+        # Obtain a copy of job
+        _tmpJob = copy.deepcopy(self._job) if self._ham is None else copy.deepcopy(self._ham.job)
 
         # Step 2: Assemble all the pulses according to self.circuit
         _tmpJob.clearWaves()
         for cirLine in self._circuit:
-            _pulses = self.findGatePulsePair(cirLine).pulses
+            if self.savePulse:
+                _pulses = self.findGatePulsePair(cirLine).pulses
+            else:
+                _pulses = self._pulseGenerator(cirLine, self)
             _tmpJob.appendJob(_pulses)
 
         # Step 3: Run the scheduling process

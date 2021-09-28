@@ -19,89 +19,100 @@
 Simulator Template: 3-qubit pulse simulator.
 """
 
-import copy
 from numpy import pi
+from typing import Dict, Tuple, Union
 
+from Quanlse.QPlatform.Error import ArgumentError
 from Quanlse.Simulator import PulseModel
-from Quanlse.QHamiltonian import QHamiltonian
-from Quanlse.QOperator import driveZ
-from Quanlse.QWaveform import QJob, quasiSquareErf
-from Quanlse.Scheduler.Superconduct.DefaultPulseGenerator import generate1Q
-from Quanlse.Scheduler.Superconduct import SchedulerPulseGenerator
+from Quanlse.Scheduler.Superconduct.GeneratorPulseModel import pulseGenerator
 
 
-def pulseGenerator(ham: QHamiltonian) -> SchedulerPulseGenerator:
-    r"""
-    The pulseGenerator for the simulator.
-
-    :param ham: a QHamiltonian object.
-    :return: a SchedulerPulseGenerator object.
-    """
-    generator = SchedulerPulseGenerator(ham)
-
-    # Add the generator for single qubit gates
-    gateList1q = ['I', 'X', 'Y', 'Z', 'H', 'S', 'T', 'RX', 'RY', 'RZ', 'W', 'SQRTW', 'U']
-    generator.addGenerator(gateList1q, generate1Q)
-
-    # Add the generator for two qubit gates
-    def generateCzSim(ham: QHamiltonian, cirLine, scheduler) -> QJob:
-        """ Generate CZ gate """
-        subHam = copy.deepcopy(ham)
-        qIndex = tuple(cirLine.qRegIndexList)
-        tg, x = scheduler.conf["caliDataCZ"][qIndex][0], scheduler.conf["caliDataCZ"][qIndex][1:]
-        startId = 0
-        qi1, qi2 = startId, startId + 1
-        qj1, qj2 = startId + 2, startId + 3
-        subHam.addWave(driveZ(ham.sysLevel), qIndex[0],
-                       quasiSquareErf(0, tg, x[qi1], tg * x[qi2], tg * (1 - x[qi2]), 0.3 * x[qi1]))
-        subHam.addWave(driveZ(ham.sysLevel), qIndex[1],
-                       quasiSquareErf(0, tg, x[qj1], tg * x[qj2], tg * (1 - x[qj2]), 0.3 * x[qj1]))
-
-        return subHam.job
-
-    generator.addGenerator(['CZ'], generateCzSim)
-
-    return generator
-
-
-def pulseSim3Q(dt=0.5) -> PulseModel:
+def pulseSim3Q(dt: float = 0.5, frameMode: str = 'rot', qubitFreq: Dict[int, float] = None,
+               qubitAnharm: Dict[int, float] = None, couplingMap: Dict[Tuple, Union[int, float]] = None) -> PulseModel:
     r"""
     Return a template of 3-qubit simulator.
 
     :param dt: a sampling time period.
+    :param frameMode: indicates the frame, ``rot`` indicates the rotating frame,
+        ``lab`` indicates the lab frame.
+    :param qubitFreq: the qubit frequency, simulator will use the preset values if None.
+    :param qubitAnharm: the qubit anharmonicity, simulator will use the preset values if None.
+    :param couplingMap: the coupling between the qubits, simulator will use the preset values if None.
     :return: a 3-qubit PulseModel object.
     """
 
     # Define parameters needed
-    dt = dt  # The sampling time
     sysLevel = 3  # The system level
     qubitNum = 3  # The number of qubits
 
     # Coupling map
-    couplingMap = {
-        (0, 1): 0.0380 * (2 * pi),
-        (1, 2): 0.0076 * (2 * pi)
-    }
+    if couplingMap is None:
+        couplingMap = {
+            (0, 1): 0.020 * (2 * pi),
+            (1, 2): 0.020 * (2 * pi)
+        }
+    else:
+        pass
 
     # Qubits frequency anharmonicity
-    anharm = - 0.33 * (2 * pi)
-    qubitAnharm = {0: anharm, 1: anharm, 2: anharm}  # The anharmonicities for each qubit
+    if qubitAnharm is None:
+        qubitAnharm = {
+            0: - 0.22 * (2 * pi),
+            1: - 0.22 * (2 * pi),
+            2: - 0.22 * (2 * pi)
+        }
+    else:
+        if len(qubitAnharm) != qubitNum:
+            raise ArgumentError(f"The length of qubit anharmonicity should be {qubitNum}!")
 
     # Qubit Frequency
-    qubitFreq = {
-        0: 5.5904 * (2 * pi),
-        1: 4.7354 * (2 * pi),
-        2: 4.8524 * (2 * pi)
+    if qubitFreq is None:
+        qubitFreq = {
+            0: 5.5004 * (2 * pi),
+            1: 4.4546 * (2 * pi),
+            2: 5.5004 * (2 * pi),
+        }
+    else:
+        if len(qubitFreq) != qubitNum:
+            raise ArgumentError(f"The length of qubit frequency should be {qubitNum}!")
+
+    # Drive Frequency
+    if frameMode == 'lab':
+        # Set the local oscillator
+        driveFreq = qubitFreq
+    elif frameMode == 'rot':
+        driveFreq = None
+        pass
+    else:
+        raise ArgumentError("Only rotating and lab frames are supported!")
+
+    # Generate the pulse model
+    model = PulseModel(subSysNum=qubitNum, sysLevel=sysLevel, couplingMap=couplingMap, qubitFreq=qubitFreq,
+                       driveFreq=driveFreq, dt=dt, qubitAnharm=qubitAnharm, pulseGenerator=pulseGenerator,
+                       frameMode=frameMode)
+    model.savePulse = False
+    model.conf["frameMode"] = frameMode
+
+    # Single-Qubit gate Calibration data
+    model.conf["caliDataXY"] = {
+        0: {"piAmp": 0.642614, "piLen": 16.0, "piTau": 8.0, "piSigma": 2.0, "dragCoef": -0.36257},
+        1: {"piAmp": 0.637912, "piLen": 16.0, "piTau": 8.0, "piSigma": 2.0, "dragCoef": -0.33307},
+        2: {"piAmp": 0.642614, "piLen": 16.0, "piTau": 8.0, "piSigma": 2.0, "dragCoef": -0.36257}
     }
 
-    model = PulseModel(subSysNum=qubitNum, sysLevel=sysLevel, couplingMap=couplingMap,
-                       qubitFreq=qubitFreq, dt=dt, qubitAnharm=qubitAnharm, pulseGenerator=pulseGenerator,
-                       )
+    # Flux pi pulse calibration data
+    model.conf["caliDataZ"] = {
+        0: {"piAmp": pi / 16., "piLen": 16.0},
+        1: {"piAmp": pi / 16., "piLen": 16.0},
+        2: {"piAmp": pi / 16., "piLen": 16.0}
+    }
 
     # Two-Qubit gate Calibration data
     model.conf["caliDataCZ"] = {
-        (0, 1): [35.0, -3.5627, 0.1457, 0.1141, 0.45],
-        (1, 2): [70.0, -1.1882, 0.1642, 0.1376, 0.1791]
+        (0, 1): {"czLen": 35.00, "q0ZAmp": -3.5570, "q1ZAmp": 1.5022,
+                 "q0VZPhase": -1.6924, "q1VZPhase": 1.0337},
+        (1, 2): {"czLen": 47.24, "q0ZAmp": 2.0581, "q1ZAmp": -3.5250,
+                 "q0VZPhase": 4.5778, "q1VZPhase": -3.9532},
     }
 
     return model

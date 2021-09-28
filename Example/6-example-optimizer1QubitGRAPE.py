@@ -29,6 +29,7 @@ from Quanlse import Define
 from Quanlse.remoteOptimizer import remoteOptimize1QubitGRAPE as runOptimize1QubitGRAPE
 
 
+
 # Your token:
 # Please visit http://quantum-hub.baidu.com
 Define.hubToken = ''
@@ -53,7 +54,7 @@ alphaq = - 0.22 * (2 * pi)
 # ---------------------------------
 
 ham = QHam(qubits, level, dt)
-ham.addDrift(duff(level), 0, alphaq)
+ham.addDrift(duff, 0, alphaq)
 
 # --------------------------
 # Define the input parameters.

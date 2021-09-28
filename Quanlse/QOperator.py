@@ -149,7 +149,7 @@ class QOperator:
         return obj
 
 
-def sigmaI() -> QOperator:
+def sigmaI(arg=None) -> QOperator:
     r"""
     Matrix form of the Pauli-I operator:
 
@@ -165,7 +165,7 @@ def sigmaI() -> QOperator:
     return qo
 
 
-def sigmaX() -> QOperator:
+def sigmaX(arg=None) -> QOperator:
     r"""
     Matrix form of the Pauli-X operator:
 
@@ -181,7 +181,7 @@ def sigmaX() -> QOperator:
     return qo
 
 
-def sigmaY() -> QOperator:
+def sigmaY(arg=None) -> QOperator:
     r"""
     Matrix form of the Pauli-Y operator:
 
@@ -197,7 +197,7 @@ def sigmaY() -> QOperator:
     return qo
 
 
-def sigmaZ() -> QOperator:
+def sigmaZ(_=None) -> QOperator:
     r"""
     Matrix form of the Pauli-Z operator:
 
@@ -222,6 +222,26 @@ def number(d: int = 2) -> QOperator:
     :return: matrix form of the number operator
     """
     return QOperator("number", dot(adagger(d), a(d)))
+
+
+def uWave(d: int = 2) -> QOperator:
+    r"""
+    Return the matrix of a microwave driven operator: :math:`(\hat{a} + \hat{a}^{\dagger})`.
+
+    :param d: the dimension of the microwave driven operator
+    :return: matrix of form the microwave driven operator
+    """
+    return QOperator("uWave", a(d) + adagger(d))
+
+
+def flux(d: int = 2) -> QOperator:
+    r"""
+    Return the matrix of a magnetic flux driven operator: :math:`\hat{a}^{\dagger}\hat{a}`.
+
+    :param d: the dimension of the magnetic flux channel driven operator
+    :return: matrix of form the magnetic flux channel driven operator
+    """
+    return QOperator("flux", dot(adagger(d), a(d)))
 
 
 def driveX(d: int = 2) -> QOperator:

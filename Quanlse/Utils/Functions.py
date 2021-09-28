@@ -18,14 +18,23 @@
 """
 Utils functions
 """
-from math import atan2
-from typing import List, Union
+import copy
+from math import atan2, pi
+from typing import List, Union, Iterable, Optional, Callable
 import itertools
 from itertools import product
-from numpy import all, array, ndarray, zeros, kron, trace, dot, linalg, eye, angle, real, exp
+
+import numpy
+from numpy import all, array, ndarray, zeros, kron, trace, dot, eye, angle, real, exp, \
+    cos, arange, fft, argmax, abs, expand_dims, block, identity, meshgrid, sqrt, arctan, conj, prod
+
+from scipy.optimize import fmin
+from scipy import linalg
+from scipy.special import laguerre, genlaguerre
+from math import factorial
 
 from Quanlse.QPlatform.Error import ArgumentError
-from Quanlse.QOperator import QOperator, dagger
+from Quanlse.QOperator import QOperator, dagger, destroy
 from Quanlse.Utils.Plot import plotPop
 
 
@@ -105,6 +114,36 @@ def combineOperatorAndOnSubSys(subSysNum: int, operators: Union[QOperator, List[
     return operatorForSave
 
 
+def formatOperatorInput(operators: Union[QOperator, Callable, List[QOperator], List[Callable]],
+                        onSubSys: Union[int, List[int]], sysLevel: Union[int, List[int]]) -> Union:
+    """
+    We allow input the Callable QOperator instances or the function.
+    """
+    _operators = []
+    if isinstance(operators, list):
+        for opIdx, op in enumerate(operators):
+            if isinstance(op, QOperator):
+                # Input operator is an QOperator instance
+                _operators.append(copy.deepcopy(op))
+            else:
+                # Input operator is callable
+                if isinstance(sysLevel, list):
+                    _operators.append(op(sysLevel[onSubSys[opIdx]]))
+                else:
+                    _operators.append(op(sysLevel))
+    else:
+        if isinstance(operators, QOperator):
+            # Input operator is an QOperator instance
+            _operators = copy.deepcopy(operators)
+        else:
+            # Input operator is callable
+            if isinstance(sysLevel, list):
+                _operators = operators(sysLevel[onSubSys])
+            else:
+                _operators = operators(sysLevel)
+    return _operators
+
+
 def project(matrix: ndarray, qubitNum: int, sysLevel: Union[int, List[int]], toLevel: int) -> ndarray:
     """
     Project a :math:`d`-level (:math:`d` is an integer) multi-qubit matrix to a lower dimension.
@@ -115,39 +154,57 @@ def project(matrix: ndarray, qubitNum: int, sysLevel: Union[int, List[int]], toL
     :param toLevel: the target energy level
     :return: uReal in ``toLevel``-dimensional Hilbert space
     """
+    if len(matrix.shape) == 1 or min(matrix.shape) == 1:
+        isMatrix = False
+    else:
+        isMatrix = True
     newMat = None
     if isinstance(sysLevel, int):
         if toLevel >= sysLevel:
             raise ArgumentError("The target level should be less than the current level.")
         # Initialization
-        tmpM = zeros((sysLevel, sysLevel), dtype=int)
-
+        if isMatrix:
+            tmpM = zeros((sysLevel, sysLevel), dtype=int)
+        else:
+            tmpM = zeros((sysLevel,), dtype=int)
         # Construct the single qubit matrix.
-        for d1 in range(toLevel):
-            for d2 in range(toLevel):
-                tmpM[d1, d2] = 1
+        if isMatrix:
+            for d1 in range(toLevel):
+                for d2 in range(toLevel):
+                    tmpM[d1, d2] = 1
+        else:
+            for d1 in range(toLevel):
+                tmpM[d1] = 1
         # Construct the tensor product matrix.
-        kronMat = array([1], dtype=int)
+        kronMat = array([1], dtype=int) if isMatrix else 1
         for _ in range(qubitNum):
             kronMat = kron(kronMat, tmpM)
         # Output the projected matrix.
-        newMat = zeros((toLevel ** qubitNum, toLevel ** qubitNum), dtype=complex)
-        toX, toY = 0, 0
-        for x in range(sysLevel ** qubitNum):
-            dropLine = True
-            for y in range(sysLevel ** qubitNum):
-                if kronMat[x, y] == 1:
-                    dropLine = False
-                    newMat[toX, toY] = matrix[x, y]
-                    toY += 1
-            toY = 0
-            if dropLine is False:
-                toX += 1
+        if isMatrix:
+            newMat = zeros((toLevel ** qubitNum, toLevel ** qubitNum), dtype=complex)
+            toX, toY = 0, 0
+            for x in range(sysLevel ** qubitNum):
+                dropLine = True
+                for y in range(sysLevel ** qubitNum):
+                    if kronMat[x, y] == 1:
+                        dropLine = False
+                        newMat[toX, toY] = matrix[x, y]
+                        toY += 1
+                toY = 0
+                if dropLine is False:
+                    toX += 1
+        else:
+            newMat = zeros((toLevel ** qubitNum,), dtype=complex)
+            toX = 0
+            for x in range(sysLevel ** qubitNum):
+                if kronMat[x] == 1:
+                    newMat[toX] = matrix[x]
+                    toX += 1
     if isinstance(sysLevel, list):
         if toLevel >= min(sysLevel):
             raise ArgumentError("The target level should be less than the minimum level of one of the qubit.")
         # Construct the tensor product matrix for this system
-        kronMat = array([1], dtype=int)
+        kronMat = array([1], dtype=int) if isMatrix else 1
         for level in sysLevel:
             tmpM = zeros((level, level), dtype=int)
             for d1 in range(toLevel):
@@ -576,3 +633,202 @@ def population(rho: ndarray, subNum: int, dimList: List[int], plot=False) -> dic
         plotPop(popName, popList, xLabel="Computational Basis", yLabel="Population")
 
     return popDict
+
+
+def getPopulationOnQubit(popList: List[float], onSubSys: int, sysLevel: int):
+    """
+    Get the population on the given qubit.
+
+    :param popList: the population list of the full system
+    :param onSubSys: the index of subsystem to obtain the population
+    :param sysLevel: the level of the system (just supports int at present)
+    """
+
+    if isinstance(sysLevel, int):
+        targetQLvl = sysLevel
+    else:
+        raise ArgumentError("sysLevel must be an integer!")
+
+    popRes = [0. for _ in range(targetQLvl)]
+
+    for targetQubitLvlIdx in range(targetQLvl):
+        # Traverse all the basis of the target qubit
+        for itemIdx, itemVal in enumerate(popList):
+            d, m = divmod(int(itemIdx / (sysLevel ** onSubSys)), targetQLvl)
+            if m == targetQubitLvlIdx:
+                popRes[targetQubitLvlIdx] += itemVal
+
+    return popRes
+
+
+def findIndex(referenceVecs: ndarray, indexKet: Union[List[ndarray], ndarray]):
+    """
+    Find the index of the given kets in the indexKet using inner product.
+
+    :param referenceVecs: ndarray of reference vectors.
+    :param indexKet: target ket or kets list.
+    :return: list of index number.
+    """
+    # initialize index list
+    idxList = []
+    refVecList = copy.deepcopy(referenceVecs.T)
+
+    if isinstance(indexKet, list):
+
+        for ket in indexKet:
+            innerProd = [vec for vec in refVecList @ ket]
+            innerVal = max(innerProd)
+            index = innerProd.index(innerVal)
+            idxList.append(index)
+
+        return idxList
+
+    else:
+        innerProd = [vec for vec in refVecList @ indexKet]
+        innerVal = max(innerProd)
+        index = innerProd.index(innerVal)
+        return index
+
+
+def fitCR(xData: array, yData: array):
+    """
+    Fit the rabi oscillation of cross-resonance effect.
+
+    :param xData: The data of x values.
+    :param yData: The data of y values.
+
+    :return: The callable fitting function and the fitting parameters.
+    """
+
+    def fit(x, p):
+        return 0.5 * cos(2 * pi * p[1] * x) + 0.5
+
+    def error(p, x, y, fitFunc):
+        return ((y - fitFunc(x, p)) ** 2).sum() / len(y)
+
+    step = xData[1] - xData[0]
+    pows = abs(fft.fft(yData))
+    freqs = fft.fftfreq(xData.size, step)
+    index = argmax(pows[freqs > 0])
+
+    a1Init = abs(yData).max()
+    a2Init = freqs[index + 1]
+
+    paraFit = fmin(error, [a1Init, a2Init], (xData, yData, fit))
+    return fit, paraFit
+
+
+def blockDiag(matrix: ndarray, subIndex: List[int]):
+    """
+    Block diagonalize a given matrix using the principle of least action.
+
+    :param matrix: The given matrix to be block diagonalized.
+    :param subIndex: The indexes of sub-system.
+
+    :return: Block diagonalization Matrix and transform Unitary
+    """
+
+    if matrix.shape[0] is not matrix.shape[1]:
+        raise ArgumentError('Not a square matrix')
+
+    if len(subIndex) > max(matrix.shape):
+        raise ArgumentError(f'Number of indexes {len(subIndex)} exceeds matrix dimension len{matrix}')
+
+    # Calculate the eigenvectors and eigenvalues of matrix.
+    valsInit, vecsInit = linalg.eig(matrix)
+
+    # Rearrange eigenvalues and corresponding eigenvectors in the ascending order.
+    index = valsInit.argsort()
+    vecs = vecsInit[:, index]
+    vals = valsInit[index]
+
+    s1 = vecs[0:len(subIndex), subIndex]
+    s2 = vecs[len(subIndex):len(matrix), subIndex]
+    X = -dagger(s2 @ linalg.inv(s1))
+
+    XDag = X.T.conj()
+    mat1 = block([identity(X.shape[0]), X])
+    mat2 = block([-XDag, identity(XDag.shape[0])])
+    U = block([[mat1], [mat2]])
+    T = U @ linalg.sqrtm(linalg.inv(dagger(U) @ U))
+
+    # Compute the block-diagonal matrix
+    matBD = dagger(T) @ matrix @ T
+
+    return matBD, T
+
+
+def eigenSystem(matrix: ndarray):
+    """
+    compute the eigenvalues and the corresponding eigenvectors for the given matrix.
+    (sorted by eigenvalues: Ascending order)
+
+    :param matrix: base matrix of the eigen system
+
+    :return: sorted eigenvalues (eigenenergies) and corresponding eigenvectors (eigenstates) (ordered by column)
+    """
+    # Solve eigenvalues problem
+    eigenVals, eigenVecs = linalg.eig(matrix)
+
+    # Rearrange eigenvalues and eigenvectors in the ascending order
+    sortedIndex = eigenVals.argsort()
+    eigenVecs = eigenVecs[:, sortedIndex]
+    eigenVals = eigenVals[sortedIndex]
+    eigenVecs = eigenVecs
+
+    return eigenVals.real, eigenVecs
+
+
+def wigner(rho: ndarray, xRange: ndarray, yRange: ndarray):
+    """
+    Calculate the wigner function of density matrix using laguerre polynomial.
+
+    :param rho: Input density matrix.
+    :param xRange: The range of the X quadrature in the phase space.
+    :param yRange: The range of the y quadrature in the phase space.
+    """
+    X, P = meshgrid(xRange, yRange)
+    T = X ** 2 + P ** 2
+
+    def _wignerLaguerre(_m, _n):
+        """
+        Return wigner function for state |n><m|
+        """
+        if _m == _n:
+            poly = laguerre(_n)
+            _w = ((-1) ** _n / pi) * exp(-T) * poly(2 * T)
+        else:
+            factor1 = sqrt(factorial(m) / factorial(n))
+            factor2 = ((-1) ** m / pi) * (sqrt(2) * (X + 1j * P)) ** (n - m) * exp(-T)
+            _w = factor1 * factor2 * genlaguerre(m, n - m)(2 * T)
+        return _w
+    W = zeros([len(xRange), len(yRange)], dtype=complex)
+    # Add all the contribution
+    dim = prod(rho.shape[0])
+    for m in range(dim):
+        wmn = real(rho[m, m] * _wignerLaguerre(m, m))
+        W += wmn
+        for n in range(m + 1, dim):
+            wmn = real(rho[m, n] * _wignerLaguerre(m, n))
+            W += 2 * wmn
+    return W
+
+
+def coherent(dim: int = 2, alpha: complex = 0 + 0j):
+    """
+    Generate a coherent state using displacement operator.
+
+    :param dim: dimension of the coherent state truncated.
+    :param alpha: the eigenvalue of the annihilation operator.
+    """
+
+    # Initialize a vacuum state
+    psi0 = basis(dim, 0)
+    a = destroy(dim).matrix
+    adag = dagger(a)
+
+    # construct a displacement operator
+    disp = linalg.expm(alpha * adag - conj(alpha) * a)
+    psi = disp @ psi0
+
+    return psi

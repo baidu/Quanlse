@@ -37,6 +37,7 @@ from Quanlse import Define
 from Quanlse.remoteSimulator import remoteSimulatorRunHamiltonian as runHamiltonian
 from Quanlse.remoteZNE import remoteZNEMitigation as zneMitigation
 
+
 # Your token:
 # Please visit http://quantum-hub.baidu.com
 Define.hubToken = ''

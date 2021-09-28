@@ -76,7 +76,7 @@ def remoteOptimize1Qubit(ham: QHam, uGoal: Union[ndarray, List[ndarray]], target
 
 
 def remoteOptimize1QubitGRAPE(ham: QHam, uGoal: Union[ndarray, List[ndarray]], tg: int = 20, iterate: int = 150,
-                             xyzPulses: List[int] = None) -> Union[Tuple[QJob, float], Tuple[List[QJob], List[float]]]:
+                              xyzPulses: List[int] = None) -> Union[Tuple[QJob, float], Tuple[List[QJob], List[float]]]:
     """
     Optimize a single-qubit gate using Gradient Ascent Pulse Engineering.
 
@@ -103,7 +103,7 @@ def remoteOptimize1QubitGRAPE(ham: QHam, uGoal: Union[ndarray, List[ndarray]], t
 
 
 def remoteOptimizeCr(ham: QHam, aBound: Tuple[float, float] = None, tg: float = 200, maxIter: int = 5,
-                    targetInfidelity: float = 0.01) -> Tuple[QJob, float]:
+                     targetInfidelity: float = 0.01) -> Tuple[QJob, float]:
     """
     Optimize a superconducting Cross-Resonance gate by Quanlse Cloud Service.
 
@@ -126,7 +126,7 @@ def remoteOptimizeCr(ham: QHam, aBound: Tuple[float, float] = None, tg: float = 
 
 
 def remoteOptimizeCz(ham: QHam, aBound: Tuple[float, float] = None, tg: float = 200, maxIter: int = 5,
-                    targetInfidelity: float = 0.01) -> Tuple[QJob, float]:
+                     targetInfidelity: float = 0.01) -> Tuple[QJob, float]:
     """
     Optimize a superconducting Controlled-Z gate by Quanlse Cloud Service.
 
@@ -149,7 +149,7 @@ def remoteOptimizeCz(ham: QHam, aBound: Tuple[float, float] = None, tg: float = 
 
 
 def remoteOptimizeISWAP(ham: QHam, aBound: Tuple[float, float] = None, tg: float = 200, maxIter: int = 5,
-                       targetInfidelity: float = 0.01) -> Tuple[QJob, float]:
+                        targetInfidelity: float = 0.01) -> Tuple[QJob, float]:
     """
     Optimize a superconducting iSWAP gate by Quanlse cloud service.
 
@@ -187,7 +187,7 @@ def remoteIonOptimize1Qubit(axial: str, theta: float, tg: float) -> Tuple[float,
 
 
 def remoteIonMS(ionNumber: int, atomMass: int, tg: float, omega: Tuple[float, float], ionIndex: Tuple[int, int],
-               phononMode: str = 'axial', pulseWave: str = 'squareWave') -> Tuple[Any, Any]:
+                phononMode: str = 'axial', pulseWave: str = 'squareWave') -> Tuple[Any, Any]:
     """
     Generate the Molmer-Sorensen gate in trapped ion
 

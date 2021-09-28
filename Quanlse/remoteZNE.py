@@ -80,13 +80,6 @@ def remoteZNEMitigation(rho: np.ndarray,
                 Must be a positive integer.
     :return: The error mitigated expectation value and possibly
                 a list of coefficients and noisy expectation values.
-
-    References
-    ----------
-    .. [1] Temme, K., et al. "Error Mitigation for Short-Depth Quantum Circuits."
-            Physical Review Letters 119.18 (2017): 180509.
-    .. [2] Kandala, A., et al. "Error mitigation extends the computational reach
-            of a noisy quantum processor." Nature 567.7749 (2019): 491-495.
     """
     args = [
         numpyMatrixToDictMatrix(rho),

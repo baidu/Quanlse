@@ -204,6 +204,23 @@ On the simulator mode (use inside the simulator): Matrix form:
 0 & 0  & \cos(-\pi/4) & i\sin(-\pi/4) \\ 0 & 0  & i\sin(-\pi/4) & \cos(-\pi/4) \end{bmatrix}`
 """
 
+EchoedCR = FixedGateOP('EchoedCR', 2,
+                 numpy.array([
+                     [math.cos(-math.pi / 4), -(1j * math.sin(-math.pi / 4)), 0, 0],
+                     [-(1j * math.sin(-math.pi / 4)), math.cos(-math.pi / 4), 0, 0],
+                     [0, 0, math.cos(-math.pi / 4), (1j * math.sin(-math.pi / 4))],
+                     [0, 0, (1j * math.sin(-math.pi / 4)), math.cos(-math.pi / 4)]
+                 ], dtype=complex)
+                 )
+r"""
+echoed cross-resonance gate, a native gate in the superconducting platform.
+
+On the simulator mode (use inside the simulator): Matrix form:
+
+:math:`CR = \begin{bmatrix} \cos(-\pi/4) & -i\sin(-\pi/4)  & 0 & 0 \\ -i\sin(-\pi/4) & \cos(-\pi/4)  & 0 & 0 \\ 
+0 & 0  & \cos(-\pi/4) & i\sin(-\pi/4) \\ 0 & 0  & i\sin(-\pi/4) & \cos(-\pi/4) \end{bmatrix}`
+"""
+
 ISWAP = FixedGateOP('ISWAP', 2,
                     numpy.array([
                          [1, 0, 0, 0],

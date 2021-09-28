@@ -26,6 +26,7 @@ from math import pi
 from Quanlse.QHamiltonian import QHamiltonian as QHam
 from Quanlse.Utils.Functions import project
 from Quanlse.remoteOptimizer import remoteOptimizeISWAP as opt
+
 from Quanlse.QOperator import duff, number
 from Quanlse import Define
 
@@ -65,9 +66,9 @@ qubitArgs = {
 ham = QHam(qubits, level, dt)
 for qu in range(2):
     # Add the detuning term(s).
-    ham.addDrift(number(level), qu, (qubitArgs[f"qubit_freq{qu}"] - qubitArgs[f"drive_freq{qu}"]))
+    ham.addDrift(number, qu, (qubitArgs[f"qubit_freq{qu}"] - qubitArgs[f"drive_freq{qu}"]))
     # Add the anharmonicity term(s).
-    ham.addDrift(duff(level), qu, qubitArgs[f"qubit_anharm{qu}"] / 2)
+    ham.addDrift(duff, qu, qubitArgs[f"qubit_anharm{qu}"] / 2)
 
 # Add the coupling term.
 ham.addCoupling([0, 1], qubitArgs["coupling"] / 2)

@@ -39,12 +39,11 @@ For more details, please visit https://quanlse.baidu.com/#/doc/tutorial-construc
 """
 
 import copy
-import time
 import pickle
 import base64
-from scipy.linalg import expm
-from typing import Dict, Any, List, Union, Optional
-from numpy import ndarray, shape, identity, size, kron, zeros, array, dot
+from typing import Dict, Any, List, Union, Optional, Callable
+from numpy import ndarray, shape, identity, size, kron, zeros, array, floor, transpose, conjugate
+from numpy.linalg import eig
 
 from Quanlse.QPlatform import Error
 from Quanlse.QOperator import QOperator, create, destroy
@@ -88,6 +87,7 @@ class QHamiltonian:
         self._collapseOperators = None  # type: Optional[List[ndarray]]
         self._driftCache = None  # type: Optional[ndarray]
         self._ctrlCache = {}  # type: Optional[Dict[str, Any]]
+        self._dissipationSuperCache = None  # type: Optional[ndarray]
 
         # Save the waveforms with flag QWAVEFORM_FLAG_DO_NOT_CLEAR
         self._doNotClearFlagOperators = {}  # type: Dict[str, Any]
@@ -130,6 +130,16 @@ class QHamiltonian:
             for key in self._waveJob.ctrlOperators.keys():
                 returnStr += f"    - `{key}`: {len(self._waveJob.waves[key])} wave(s).\n"
 
+        # Print Local oscillator setting
+        returnStr += f"(4) Local Oscillator Settings:\n"
+        if len(self._waveJob.LO.keys()) < 1:
+            returnStr += f"    No LO setting.\n"
+        else:
+            for key in self._waveJob.LO.keys():
+                _freq = self._waveJob.LO[key][0]
+                _phase = self._waveJob.LO[key][1]
+                returnStr += f"    - `{key}`: frequency is {_freq}, phase is {_phase}.\n"
+
         return returnStr
 
     @property
@@ -165,7 +175,7 @@ class QHamiltonian:
         :param value: the number of subsystems - either an integer value or a list of integers.
         """
         if not isinstance(value, int) and not isinstance(value, list):
-            raise Error.ArgumentError("sysSize must be an integer or a list!")
+            raise Error.ArgumentError("sysLevel must be an integer or a list!")
         if isinstance(value, list) and min(value) < 2:
             raise Error.ArgumentError("All items in sysSize must be larger than 1!")
         if isinstance(value, int) and value < 2:
@@ -263,6 +273,20 @@ class QHamiltonian:
         self._collapseOperators = None
 
     @property
+    def dissipationSuperCache(self):
+        """
+        Return the cache of dissipation super operator.
+        """
+        return self._dissipationSuperCache
+
+    @dissipationSuperCache.deleter
+    def dissipationSuperCache(self):
+        """
+        Delete the cache of the dissipation super operators.
+        """
+        del self._dissipationSuperCache
+
+    @property
     def job(self) -> QJob:
         """
         Return a QJob object. The QJob object contains all the information regarding a quantum task.
@@ -296,11 +320,18 @@ class QHamiltonian:
         """
         del self._waveJob
 
+    def copy(self) -> "QHamiltonian":
+        """
+        Return a copy of current object.
+        """
+        return copy.deepcopy(self)
+
     def createJobList(self) -> QJobList:
         """
         Return an instance of a QJobList of the same system properties.
         """
         newJobList = QJobList(subSysNum=self.subSysNum, sysLevel=self.sysLevel, dt=self.dt)
+        newJobList.LO = self.job.LO
         return newJobList
 
     def createJob(self) -> QJob:
@@ -309,11 +340,12 @@ class QHamiltonian:
         """
         newJob = QJob(subSysNum=self.subSysNum, sysLevel=self.sysLevel, dt=self.dt)
         newJob.ctrlOperators = copy.deepcopy(self.job.ctrlOperators)
+        newJob.LO = self.job.LO
         return newJob
 
-    def addDrift(self, operator: Union[QOperator, List[QOperator]], onSubSys: Union[int, List[int]],
-                 coef: float = None, name: str = None) -> None:
-        """
+    def addDrift(self, operator: Union[QOperator, Callable, List[QOperator], List[Callable]],
+                 onSubSys: Union[int, List[int]], coef: float = None, name: str = None) -> None:
+        r"""
         Add drift terms to the Hamiltonian.
 
         **Example 1** (add drift terms):
@@ -337,7 +369,29 @@ class QHamiltonian:
         :return: None
         """
 
-        _operator = copy.deepcopy(operator)
+        _operators = []
+        if isinstance(operator, list):
+            for opIdx, op in enumerate(operator):
+                if isinstance(op, QOperator):
+                    # Input operator is an QOperator instance
+                    _operators.append(copy.deepcopy(op))
+                else:
+                    # Input operator is callable
+                    if isinstance(self.sysLevel, list):
+                        _operators.append(op(self.sysLevel[onSubSys[opIdx]]))
+                    else:
+                        _operators.append(op(self.sysLevel))
+        else:
+            if isinstance(operator, QOperator):
+                # Input operator is an QOperator instance
+                _operators = copy.deepcopy(operator)
+            else:
+                # Input operator is callable
+                if isinstance(self.sysLevel, list):
+                    _operators = operator(self.sysLevel[onSubSys])
+                else:
+                    _operators = operator(self.sysLevel)
+
         if onSubSys is None:
             # Input the complete matrices directly.
             if isinstance(self._sysLevel, int):
@@ -349,19 +403,19 @@ class QHamiltonian:
             else:
                 raise Error.ArgumentError(f"Wrong type of self._sysLevel ({type(self._sysLevel)}).")
 
-            if not shape(_operator.matrix) == (dim, dim):
+            if not shape(_operators.matrix) == (dim, dim):
                 raise Error.ArgumentError(f"Dimension of operator ({dim}, {dim}) does not match the sysLevel.")
 
-            operatorForSave = _operator
+            operatorForSave = _operators
         else:
             # Verify if operator and onSubSys have the same size
-            if (isinstance(_operator, list) and not isinstance(onSubSys, list)) or \
-                    (not isinstance(_operator, list) and isinstance(onSubSys, list)):
+            if (isinstance(_operators, list) and not isinstance(onSubSys, list)) or \
+                    (not isinstance(_operators, list) and isinstance(onSubSys, list)):
                 raise Error.ArgumentError("The type of operator should be the same as onSubSys's!")
 
-            if isinstance(_operator, list) and isinstance(onSubSys, list):
-                if len(_operator) != len(onSubSys):
-                    raise Error.ArgumentError(f"The size of operator ({len(_operator)}) != that "
+            if isinstance(_operators, list) and isinstance(onSubSys, list):
+                if len(_operators) != len(onSubSys):
+                    raise Error.ArgumentError(f"The size of operator ({len(_operators)}) != that "
                                               f"of onSubSys ({len(onSubSys)})!")
 
             # Verify the range and set the onSubSys
@@ -369,15 +423,15 @@ class QHamiltonian:
                 if onSubSys >= self._subSysNum:
                     raise Error.ArgumentError(f"onSubSys ({onSubSys}) is larger than the "
                                               f"subSysNum {self._subSysNum}.")
-                _operator.onSubSys = onSubSys
-                operatorForSave = _operator
+                _operators.onSubSys = onSubSys
+                operatorForSave = _operators
             elif isinstance(onSubSys, list):
                 if max(onSubSys) >= self._subSysNum:
                     raise Error.ArgumentError(f"onSubSys ({onSubSys}) is larger than the "
                                               f"subSysNum {self._subSysNum}.")
                 # Sort the operators according to on onSubSys
                 sortedIndex = list(array(onSubSys).argsort())
-                sortedOperators = [_operator[i] for i in sortedIndex]
+                sortedOperators = [_operators[i] for i in sortedIndex]
                 sortedOnSubSys = [onSubSys[i] for i in sortedIndex]
                 # Set onSubSys
                 for i in range(len(sortedIndex)):
@@ -399,11 +453,11 @@ class QHamiltonian:
         if coef is not None:
             if not isinstance(coef, float):
                 raise Error.ArgumentError(f"coef should be float instead of {type(coef)}")
-            if isinstance(_operator, list):
-                for op in _operator:
+            if isinstance(_operators, list):
+                for op in _operators:
                     op.coef = coef
             else:
-                _operator.coef = coef
+                _operators.coef = coef
 
         self._driftOperators[opKey] = operatorForSave
 
@@ -451,28 +505,58 @@ class QHamiltonian:
         self.addDrift(matrices, onSubSys=onSubSys, coef=g)
         self.addDrift(matricesHc, onSubSys=onSubSys, coef=g)
 
-    def addWave(self, operators: Union[QOperator, List[QOperator]] = None, onSubSys: Union[int, List[int]] = None,
-                waves: Union[QWaveform, List[QWaveform]] = None, strength: Union[int, float] = 1.0,
-                omega: Optional[Union[int, float]] = None, phi: Optional[Union[int, float]] = None,
-                name: str = None, tag: str = None, flag: int = None) -> None:
+    def addWave(self, operators: Union[QOperator, Callable, List[QOperator], List[Callable]] = None,
+                onSubSys: Union[int, List[int]] = None, waves: Union[QWaveform, List[QWaveform]] = None,
+                t0: Union[int, float] = None, strength: Union[int, float] = 1.0,
+                freq: Optional[Union[int, float]] = None, phase: Optional[Union[int, float]] = None,
+                phase0: Optional[Union[int, float]] = None, name: str = None, tag: str = None, flag: int = None) \
+            -> None:
         r"""
         This method adds a control term to the Hamiltonian with a specified waveform.
 
-        :param operators: the corresponding operator(s)
-        :param onSubSys: qubit indexes that the term acts upon
-        :param waves: Qwaveform object to be added to the Hamiltonian
+        :param operators: wave operator
+        :param onSubSys: what subsystem the wave is acting upon
+        :param waves: a QWaveform object
+        :param t0: start time
         :param strength: wave strength
-        :param omega: frequency of the local-oscillator, i.e. :math:`\cos(\omega t + \phi)`
-        :param phi: phase of the local-oscillator
-        :param name: a user-given name for identifying purposes
-        :param tag: a user-given tag marking the pulse's purpose
-        :param flag: store pulse's configuration in binary
-        :return: None.
+        :param freq: wave frequency shift
+        :param phase: pulse phase shift (will accumulate during the entire pulse execution)
+        :param phase0: pulse phase shift (will not accumulate during the entire pulse execution)
+        :param name: a user-given name to the wave
+        :param tag: wave tag indicating purpose
+        :param flag: wave flag
+        :return: None
         """
-        self._waveJob.addWave(operators, onSubSys, waves, strength, omega, phi, name, tag, flag)
+        self._waveJob.addWave(operators, onSubSys, waves, t0, strength, freq, phase, phase0, name, tag, flag)
 
-    def clearWaves(self, operators: Union[QOperator, List[QOperator]] = None, onSubSys: Union[int, List[int]] = None,
-                   names: Union[str, List[str]] = None, tag: str = None) -> None:
+    def appendWave(self, operators: Union[QOperator, Callable, List[QOperator], List[Callable]] = None,
+                   onSubSys: Union[int, List[int]] = None, waves: Union[QWaveform, List[QWaveform]] = None,
+                   strength: Union[int, float] = 1.0, freq: Optional[Union[int, float]] = None,
+                   phase: Optional[Union[int, float]] = None, phase0: Optional[Union[int, float]] = None,
+                   name: str = None, tag: str = None, shift: float = 0.0, compact: bool = True):
+        """
+        This method appends control terms and waveforms to a QJob object. Unlike `addWave()`, this function will append
+        the waveform in the end of the existing waveforms, hence ignore the `t0` parameter of rhe `QWaveform` object.
+
+        :param operators: wave operator
+        :param onSubSys: what subsystem the wave is acting upon
+        :param waves: a QWaveform object
+        :param strength: wave strength
+        :param freq: wave frequency shift
+        :param phase: pulse phase shift (will accumulate during the entire pulse execution)
+        :param phase0: pulse phase shift (will not accumulate during the entire pulse execution)
+        :param name: a user-given name to the wave
+        :param tag: wave tag indicating purpose
+        :param shift: time shift of the added wave
+        :param compact: the added wave will be left aligned in specified control terms if True.
+        :return: None
+        """
+        self._waveJob.appendWave(operators, onSubSys, waves, strength, freq, phase, phase0,
+                                 name, tag, shift, compact)
+
+    def clearWaves(self, operators: Union[QOperator, Callable, List[QOperator], List[Callable]] = None,
+                   onSubSys: Union[int, List[int]] = None, names: Union[str, List[str]] = None,
+                   tag: str = None) -> None:
         """
         This method removes all waveforms in the specified control terms.
         If names is None, this method will remove waveforms in all control terms.
@@ -484,6 +568,19 @@ class QHamiltonian:
         :return: None.
         """
         self.job.clearWaves(operators, onSubSys, names, tag)
+
+    def setLO(self, operators: Union[QOperator, Callable, List[QOperator], List[Callable]],
+              onSubSys: Union[int, List[int]], name: str = None, freq: float = 1.0, phase: float = 0.0):
+        """
+        Add local oscillator for specific control terms.
+
+        :param operators: QOperator object(s)
+        :param onSubSys: what subsystem the wave is acting upon
+        :param name: user-defined operator name
+        :param freq: the frequency of the local oscillator
+        :param phase: the phase between the local oscillator and the waveform
+        """
+        self._waveJob.setLO(operators, onSubSys, name, freq, phase)
 
     def plot(self, names: Union[str, List[str]] = None, tag: str = None, xUnit: str = 'ns', yUnit: str = 'Amp (a.u.)',
              color: Union[str, List[str]] = None, dark: bool = False) -> None:
@@ -522,7 +619,6 @@ class QHamiltonian:
                     if shape(operator)[0] != self.sysLevel[index]:
                         raise Error.ArgumentError("the dimension of the collapse operator doesn't equal"
                                                   " the dimension of the state!")
-
         self._collapseList = cList
 
     def verifyWaveListObj(self, waveJob: QJob) -> bool:
@@ -562,6 +658,7 @@ class QHamiltonian:
         self._waveJob.buildWaveCache()
         if self._collapseList is not None:
             self.buildCollapseCache()
+            self.buildDissipationSuperCache()
 
     def buildOperatorCache(self) -> None:
         r"""
@@ -633,6 +730,34 @@ class QHamiltonian:
 
         self._collapseOperators = cacheList
 
+    def buildDissipationSuperCache(self) -> None:
+        """
+        Generate the dissipation super operator in the Liouville form.
+        """
+        cList = self._collapseOperators
+
+        dim = None
+
+        # Calculate the dimension of the Hilbert space
+        if isinstance(self.sysLevel, int):
+            dim = self.sysLevel ** self.subSysNum
+
+        elif isinstance(self.sysLevel, list):
+            dim = 1
+            for i in self.sysLevel:
+                dim = dim * i
+
+        idn = identity(dim, dtype=complex)
+
+        ld = zeros((dim * dim, dim * dim), dtype=complex)
+
+        if cList is not None:
+            cdagList = [transpose(conjugate(c)) for c in cList]
+            for c, cdag in zip(cList, cdagList):
+                ld += kron(c, c) - 0.5 * kron(cdag @ c, idn) - 0.5 * kron(idn, cdag @ c)
+
+        self._dissipationSuperCache = ld
+
     def _generateOperator(self, operator: Union[QOperator, List[QOperator]]) -> ndarray:
         """
         Generate the operator of the system in the complete Hilbert space by taking tensor products.
@@ -686,7 +811,6 @@ class QHamiltonian:
                             if not (operatorSize == (sysLevel, sysLevel)):
                                 raise Error.ArgumentError(f"Dim of input matrix {operatorSize} does not match"
                                                           f" with the system level ({sysLevel}).")
-
                         else:
                             finalOperator = idMat
                     else:
@@ -710,7 +834,7 @@ class QHamiltonian:
             idMat = [identity(i, dtype=complex) for i in sysLevel]
             # The operator is acting on only one subsystem.
             if isinstance(operator, QOperator):
-                if not (size(matrices) == (sysLevel[operator.onSubSys], sysLevel[operator.onSubSys])):
+                if not (matrices.shape == (sysLevel[operator.onSubSys], sysLevel[operator.onSubSys])):
                     raise Error.ArgumentError("Dimension of matrix does not match the system Level.")
                 # The operator is acting on the first subsystem.
                 if operator.onSubSys == 0:
@@ -795,6 +919,17 @@ class QHamiltonian:
                                               "of this QHamiltonian.")
         else:
             raise Error.ArgumentError("Unsupported input of qubitNum, it should be an int value or a list.")
+
+        # Update the sysLevel property
+        if isinstance(self._sysLevel, list):
+            if isinstance(onSubSys, int):
+                subHam.sysLevel = self._sysLevel[onSubSys]
+                subHam.job.sysLevel = self._sysLevel[onSubSys]
+            else:
+                subHam.sysLevel = [self._sysLevel[qIndex] for qIndex in onSubSys]
+                subHam.job.sysLevel = [self._sysLevel[qIndex] for qIndex in onSubSys]
+
+        # Set the mapping relationship
         subHam.subSystemIndexMapping = copy.deepcopy(indexMapping)
 
         def mapping(index: Union[int, List[int]]) -> Union[int, List[int]]:
@@ -868,7 +1003,7 @@ class QHamiltonian:
             else:
                 originalOnSubSys = doNotClrCtrl.onSubSys
             if allIn(onSubSys, originalOnSubSys):
-                wavesDict = QJob.searchWaveTool(self.doNotClearFlagWaves, self.subSysNum,
+                wavesDict = QJob.searchWaveTool(self.doNotClearFlagWaves, self.subSysNum, self.sysLevel,
                                                 doNotClrCtrl, originalOnSubSys)
                 for waveKey in wavesDict.keys():
                     # Update the waveform setup
@@ -891,6 +1026,59 @@ class QHamiltonian:
         subHam.job.subSysNum = subQubits
 
         return subHam
+
+    def eigen(self, t: Optional[ndarray] = None):
+        """
+        Calculate the eigenvalues and eigenvectors of the given Hamiltonian.
+
+        :param t: The time at which the Hamiltonian's eigenvectors and eigenvalues are to compute.
+        :return: If t is none, it returns (n, n) Hamiltonian's eigenvalues of shape (n, ) in the
+        ascending order and the corresponding eigenvectors matrix of shape (n, n); If t is an (m, ) array,
+        it returns list of (m, n) eigenvalues and (m, n, n) eigenvectors.
+        """
+
+        # Build cache of the Hamiltonian
+        self.buildCache()
+        drift = self.driftCache
+        ctrl = self.ctrlCache
+        wave = self.job.waveCache
+        dt = self.dt
+        maxDt = self.job.endTimeDt
+
+        def _computeEigen(matrix):
+            # Solve eigenvalues problem
+            eigenVals, eigenVecs = eig(matrix)
+            # Rearrange eigenvalues and eigenvectors in the ascending order
+            sortedIndex = eigenVals.argsort()
+            eigenVecs = eigenVecs[:, sortedIndex]
+            eigenVals = eigenVals[sortedIndex]
+            return eigenVals.real, eigenVecs
+
+        if t is None:
+            # Solve eigenvalues problem
+            vals, vecs = _computeEigen(drift)
+        else:
+            valsList = []
+            vecsList = []
+            if len(t) > maxDt:
+                raise Error.ArgumentError('The length of time exceeds the number of maximum steps')
+            indexDt = floor(t / dt)
+            indexDt = indexDt.astype(int)
+            for nowDt in indexDt:
+                if nowDt >= maxDt:
+                    nowDt = nowDt - 1
+                ham = drift
+                for key in ctrl:
+                    ham += ctrl[key] * wave[key][nowDt]
+                evals, evecs = _computeEigen(ham)
+                valsList.append(evals.tolist())
+                vecsList.append(evecs.tolist())
+            vals = array(valsList)
+            vecs = array(vecsList)
+
+        # Clear cache
+        self.clearCache()
+        return vals, vecs
 
     def subSystemIndicesInverse(self) -> Dict[int, int]:
         """
@@ -940,18 +1128,28 @@ class QHamiltonian:
                 job.addWave(operators, onSubSysInOriginalHam, wave)
         return job
 
-    def simulate(self, job: QJob = None, state0: ndarray = None, recordEvolution: bool = False,
-                 jobList: QJobList = None, refreshCache: bool = True) -> QResult:
+    def simulate(self, job: QJob = None, state0: ndarray = None, recordEvolution: bool = False, shot: int = None,
+                 isOpen: bool = False, jobList: QJobList = None, refreshCache: bool = True, accelerate: bool = False,
+                 adaptive: bool = False, tolerance: float = 0.01) -> QResult:
         """
         Calculate the unitary evolution operator with a given Hamiltonian. This function supports
         both single-job and batch-job processing.
+
+        To activate acceleration, please install ``Numba`` JIT compiler, please visit its official website
+        https://numba.pydata.org/ for more details.
 
         :param job: the QJob object to simulate.
         :param state0: the initial state vector. If None is given, this function will return the time-ordered
                        evolution operator, otherwise returns the final state vector.
         :param recordEvolution: the detailed procedure will be recorded if True
+        :param shot: return the population of the eigenstates when ``shot`` is provided
+        :param isOpen: simulate the evolution using Lindblad equation
         :param jobList: a job list containing the waveform list
         :param refreshCache: it will neither clear nor rebuild cache if refreshCache is set to be True
+        :param adaptive: use the adaptive solver if True
+        :param tolerance: the greatest error of approximation for the adaptive solver
+        :param accelerate: use numba expm if true
+
         :return: result dictionary (or a list of result dictionaries when ``jobList`` is provided)
 
         This function does provide the option of simulating on local devices. However, Quanlse also provides
@@ -977,87 +1175,47 @@ class QHamiltonian:
         Here, jobs is a QJobList object, indicating the the waveforms to be used.
         """
 
-        def _simulate(ham: QHamiltonian, _recordEvolution: bool = False) -> Dict[str, Any]:
-            """
-            Run simulation on a Ham object, return a dictionary consisting the simulated result.
+        resultList = QResult("built-in simulator")
 
-            :param ham: Ham object to be simulated
-            :param _recordEvolution: whether to record evolution
-            :return: a dictionary with the simulated result
-            """
-            # Start timing
-            startTime = time.time()
+        if jobList is None:
+            jobList = self.createJobList()
+            if job is None:
+                jobList.addJob(self.job)
+            else:
+                jobList.addJob(job)
+
+        # Transverse all the jobs
+        _tmpHam = copy.deepcopy(self)
+        for waveList in jobList.jobs:
+            # Clear all waves
+            _tmpHam.job.clearWaves()
+            _tmpHam.job.LO = waveList.LO
+            # Add waves in current job
+            _tmpHam.job.appendJob(waveList)
             # Build cache
             if refreshCache:
-                ham.buildCache()
-            # Obtain the drift Hamiltonian
-            drift = ham._driftCache
-            # Initialize stateOrUnitary
-            if state0 is not None:
-                stateOrUnitary = copy.deepcopy(state0)
-            # If the sysLevel is an integer to indicate the same energy level for each subsystem
-            else:
-                if isinstance(ham.sysLevel, int):
-                    stateOrUnitary = identity(ham.sysLevel ** ham.subSysNum, dtype=complex)
+                _tmpHam.buildCache()
+            # Start calculation
+            if isOpen:
+                if not adaptive:
+                    from Quanlse.Utils.ODESolver import solverOpenSystem
+                    result = solverOpenSystem(_tmpHam, state0=state0, recordEvolution=recordEvolution,
+                                              accelerate=accelerate)
                 else:
-                    # If the sysLevel is a list of energy levels for different subsystem
-                    dim = 1
-                    for i in ham.sysLevel:
-                        dim = dim * i
-                    stateOrUnitary = identity(dim, dtype=complex)
-            history = []
-            for nowDt in range(0, ham._waveJob.endTimeDt):
-                totalHam = copy.deepcopy(drift)
-                # Traverse all the control Hamiltonian
-                for key in ham._ctrlCache:
-                    totalHam += ham._ctrlCache[key] * ham._waveJob.waveCache[key][nowDt]
-                tUnitary = expm(- 1j * totalHam * ham.dt)
-                stateOrUnitary = dot(tUnitary, stateOrUnitary)
-                if _recordEvolution:
-                    history.append(stateOrUnitary)
-            # We record necessary information of the unitary matrix
-            if state0 is not None:
-                _state = stateOrUnitary
-                _unitary = None
+                    raise Error.ArgumentError("Adaptive solver is not available when solving open system.")
             else:
-                _unitary = stateOrUnitary
-                _state = None
-            ret = {
-                "unitary": _unitary,
-                "state": _state,
-                "dt": ham.dt,
-                "dts": ham._waveJob.endTimeDt,
-                "ns": ham._waveJob.endTimeDt * ham.dt,
-                "time_consuming": time.time() - startTime,
-                "evolution_history": history,
-                "simulator": "built-in"
-            }
+                if not adaptive:
+                    from Quanlse.Utils.ODESolver import solverNormal
+                    result = solverNormal(_tmpHam, state0=state0, shot=shot, recordEvolution=recordEvolution,
+                                          accelerate=accelerate)
+                else:
+                    from Quanlse.Utils.ODESolver import solverAdaptive
+                    result = solverAdaptive(_tmpHam, state0=state0, shot=shot, tolerance=tolerance,
+                                            accelerate=accelerate)
+            resultList.append(result)
             if refreshCache:
-                ham.clearCache()
-            return ret
-
-        resultList = QResult("built-in simulator")
-        if jobList is not None:
-            _tmpHam = copy.deepcopy(self)
-            # Transverse all the jobs
-            for waveList in jobList.jobs:
-                # Clear all waves
-                _tmpHam.job.clearWaves()
-                # Add waves in current job
-                _tmpHam.job.appendJob(waveList)
-                # Start calculation
-                result = _simulate(_tmpHam, _recordEvolution=False)
-                resultList.append(result)
-            return resultList
-
-        elif job is not None:
-            _tmpHam = copy.deepcopy(self)
-            _tmpHam.job = copy.deepcopy(job)
-            resultList.append(_simulate(_tmpHam, _recordEvolution=recordEvolution))
-            return resultList
-        else:
-            resultList.append(_simulate(self, _recordEvolution=recordEvolution))
-            return resultList
+                self.clearCache()
+        return resultList
 
     def doNotClearWaveFunctionsToSequences(self, maxEndTime: float = None) -> Dict[str, List[QWaveform]]:
         """
@@ -1092,14 +1250,36 @@ class QHamiltonian:
         if self._doNotClearFlagWaves is not None:
             obj._doNotClearFlagWaves = None
             obj._doNotClearFlagWaves = self.doNotClearWaveFunctionsToSequences(maxEndTime=maxEndTime)
+            for opKey in obj._doNotClearFlagWaves.keys():
+                for wave in obj._doNotClearFlagWaves[opKey]:
+                    if not hasattr(wave, "omega"):
+                        wave.omega = wave.freq
+                        wave.phi = 0.
+                    if not hasattr(wave, "phi"):
+                        wave.phi = 0. if wave.phase0 is None else wave.phase0
 
         if obj.job is not None:
             obj.job.parent = None
+
+        # For compatibility with previous versions
+        for opKey in obj.job.waves.keys():
+            for wave in obj.job.waves[opKey]:
+                if not hasattr(wave, "omega"):
+                    wave.omega = wave.freq
+                    wave.phi = 0.
+                if not hasattr(wave, "phi"):
+                    wave.phi = 0. if wave.phase0 is None else wave.phase0
 
         byteStr = pickle.dumps(obj)
         base64str = base64.b64encode(byteStr)
         del obj
         return base64str.decode()
+
+    def clone(self) -> 'QHamiltonian':
+        """
+        Return the copy of the object
+        """
+        return copy.deepcopy(self)
 
     @staticmethod
     def load(base64Str: str) -> 'QHamiltonian':
@@ -1111,6 +1291,17 @@ class QHamiltonian:
         """
         byteStr = base64.b64decode(base64Str.encode())
         obj = pickle.loads(byteStr)  # type: QHamiltonian
+
         if obj.job is not None:
+            # Set job's parent
             obj.job.parent = obj
+            # For compatibility with previous versions
+            for opKey in obj.job.waves.keys():
+                for wave in obj.job.waves[opKey]:
+                    if not hasattr(wave, "freq"):
+                        wave.freq = wave.omega if hasattr(wave, "omega") else None
+                    if not hasattr(wave, "phase0"):
+                        wave.phase0 = wave.phi if hasattr(wave, "phi") else None
+                    if not hasattr(wave, "phase"):
+                        wave.phase = None
         return obj

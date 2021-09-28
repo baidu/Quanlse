@@ -19,8 +19,7 @@
 Default Pulse Generator for QuanlseSchedulerSuperconduct.
 """
 
-from Quanlse.QHamiltonian import QHamiltonian as QHam
-from Quanlse.Scheduler.SchedulerPulseGenerator import SchedulerPulseGenerator
+from Quanlse.Scheduler import SchedulerPulseGenerator
 from Quanlse.QOperation import CircuitLine, Error
 from Quanlse.QWaveform import QJob
 
@@ -30,12 +29,14 @@ from Quanlse.remoteOptimizer import remoteOptimizeCz as optCz
 from Quanlse.remoteOptimizer import remoteOptimizeISWAP as optISWAP
 
 
-def generate1Q(ham: QHam = None, cirLine: CircuitLine = None, scheduler: 'SchedulerSuperconduct' = None) -> QJob:
+def generate1Q(ham: 'QHamiltonian' = None, cirLine: CircuitLine = None,
+               scheduler: 'SchedulerSuperconduct' = None) -> QJob:
     """
     Default generator for single qubit gates.
 
     :param ham: QHam object containing the system information
     :param cirLine: a CircuitLine object containing the gate information
+    :param scheduler: the instance of Quanlse Scheduler Superconducting
     :return: returned QJob object
     """
     subHam = ham.subSystem(cirLine.qRegIndexList)
@@ -56,12 +57,14 @@ def generate1Q(ham: QHam = None, cirLine: CircuitLine = None, scheduler: 'Schedu
     return subHam.outputInverseJob(ham.subSysNum, ham.sysLevel, ham.dt)
 
 
-def generateCr(ham: QHam = None, cirLine: CircuitLine = None, scheduler: 'SchedulerSuperconduct' = None) -> QJob:
+def generateCr(ham: 'QHamiltonian' = None, cirLine: CircuitLine = None,
+               scheduler: 'SchedulerSuperconduct' = None) -> QJob:
     """
     Default generator for Cross-resonance gate.
 
     :param ham: QHam object containing the system information
     :param cirLine: a CircuitLine object containing the gate information
+    :param scheduler: the instance of Quanlse Scheduler Superconducting
     :return: returned QJob object
     """
     subHam = ham.subSystem(cirLine.qRegIndexList)
@@ -71,12 +74,14 @@ def generateCr(ham: QHam = None, cirLine: CircuitLine = None, scheduler: 'Schedu
     return subHam.outputInverseJob(ham.subSysNum, ham.sysLevel, ham.dt)
 
 
-def generateCz(ham: QHam = None, cirLine: CircuitLine = None, scheduler: 'SchedulerSuperconduct' = None) -> QJob:
+def generateCz(ham: 'QHamiltonian' = None, cirLine: CircuitLine = None,
+               scheduler: 'SchedulerSuperconduct' = None) -> QJob:
     """
     Default generator for controlled-Z gate.
 
     :param ham: QHam object containing the system information
     :param cirLine: a CircuitLine object containing the gate information
+    :param scheduler: the instance of Quanlse Scheduler Superconducting
     :return: returned QJob object
     """
     subHam = ham.subSystem(cirLine.qRegIndexList)
@@ -86,12 +91,14 @@ def generateCz(ham: QHam = None, cirLine: CircuitLine = None, scheduler: 'Schedu
     return subHam.outputInverseJob(ham.subSysNum, ham.sysLevel, ham.dt)
 
 
-def generateISWAP(ham: QHam = None, cirLine: CircuitLine = None, scheduler: 'SchedulerSuperconduct' = None) -> QJob:
+def generateISWAP(ham: 'QHamiltonian' = None, cirLine: CircuitLine = None,
+                  scheduler: 'SchedulerSuperconduct' = None) -> QJob:
     """
     Default generator for ISWAP gate.
 
     :param ham: QHam object containing the system information
     :param cirLine: a CircuitLine object containing the gate information
+    :param scheduler: the instance of Quanlse Scheduler Superconducting
     :return: returned QJob object
     """
     subHam = ham.subSystem(cirLine.qRegIndexList)
@@ -101,7 +108,7 @@ def generateISWAP(ham: QHam = None, cirLine: CircuitLine = None, scheduler: 'Sch
     return subHam.outputInverseJob(ham.subSysNum, ham.sysLevel, ham.dt)
 
 
-def defaultPulseGenerator(ham: QHam) -> SchedulerPulseGenerator:
+def generatorCloud(ham: 'QHamiltonian') -> SchedulerPulseGenerator:
     """
     Return a default pulse SchedulerPulseGenerator instance for the scheduler.
 

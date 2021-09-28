@@ -27,6 +27,7 @@ from Quanlse.QHamiltonian import QHamiltonian as QHam
 from Quanlse.Utils.Functions import project
 from Quanlse.QOperator import duff
 from Quanlse.remoteOptimizer import remoteOptimize1Qubit as opt
+
 from Quanlse.QOperation import FixedGate
 from Quanlse import Define
 
@@ -56,7 +57,7 @@ anharm = - 0.33 * (2 * pi)
 ham = QHam(qubits, level, dt=dt)
 
 # Add the drift term(s).
-ham.addDrift(duff(level), 0, coef=anharm / 2)
+ham.addDrift(duff, 0, coef=anharm / 2)
 
 # ------------------------------------------
 # Run the optimization and show the results.

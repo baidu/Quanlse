@@ -27,7 +27,7 @@ from Quanlse.Utils.Functions import basis, tensor
 from Quanlse.QOperation import FixedGate
 from Quanlse.Simulator import PulseModel
 from Quanlse.Scheduler.Superconduct import SchedulerSuperconduct
-from Quanlse.Scheduler.Superconduct.RBPulseGenerator import SingleQubitCliffordPulseGenerator
+from Quanlse.Scheduler.Superconduct.GeneratorRBPulse import SingleQubitCliffordPulseGenerator
 from Quanlse.Utils.RandomizedBenchmarking import RB
 from Quanlse import Define
 
@@ -107,7 +107,7 @@ print(" Randonmized Benchmark")
 print("*" * 50)
 
 # Schedule those pulses.
-sche = SchedulerSuperconduct(dt=dt, ham=hamTarget, pulseGenerator=SingleQubitCliffordPulseGenerator(hamTarget))
+sche = SchedulerSuperconduct(dt=dt, ham=hamTarget, generator=SingleQubitCliffordPulseGenerator(hamTarget))
 
 # Get a basicRB curve used for reference.
 for i in size:

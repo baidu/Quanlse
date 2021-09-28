@@ -34,7 +34,7 @@ from Quanlse.Scheduler.Superconduct import SchedulerSuperconduct
 from Quanlse.Utils.Functions import project, tensor, expect, fromMatrixToAngles
 from Quanlse.Utils.Plot import plotPulse
 from Quanlse.Utils.Clifford import randomClifford
-from Quanlse.Scheduler.Superconduct.RBPulseGenerator import SingleQubitCliffordPulseGenerator
+from Quanlse.Scheduler.Superconduct.GeneratorRBPulse import SingleQubitCliffordPulseGenerator
 
 
 def setupBasicHamiltonian(n: int = None) -> QHamiltonian:
@@ -90,7 +90,7 @@ def fromCircuitToHamiltonian(circuit: List[CircuitLine] = None, useCliffordPulse
 
     # Step 2. Use the Quanlse Scheduler to generate pulse sequences for the input quantum circuit
     if useCliffordPulse:
-        scheduler = SchedulerSuperconduct(ham.dt, ham, pulseGenerator=SingleQubitCliffordPulseGenerator(ham))
+        scheduler = SchedulerSuperconduct(ham.dt, ham, generator=SingleQubitCliffordPulseGenerator(ham))
     else:
         scheduler = SchedulerSuperconduct(ham.dt, ham)
     # Translate the circuits to gates operated on the Scheduler
@@ -222,7 +222,7 @@ def computeIdealExpectationValue(rho: np.ndarray,
     r"""
     Compute the ideal expectation value of the following form
 
-    :math:`\rm{Tr}[A C_n\cdots C_1 \rho C_1^\dagger \cdots C_n^\dagger]`
+    :math:`{\rm{Tr}}[A C_n\cdots C_1 \rho C_1^\dagger \cdots C_n^\dagger]`
 
     where each :math:`C_i` is a quantum gate.
 
@@ -249,7 +249,7 @@ def tensorWithSingleQubitGate(singleQubitOperator: np.ndarray, n: int, qubitInde
 
     :param singleQubitOperator: ndarray with shape (2,2)
     :param n: number of qubits
-    :param qubitIndex: index of the qubit with the subsequent single qubit operation
+    :param qubitIndex: index of the qubit with the subsequent single-qubit operation
     :return: ndarray with shape (2^n, 2^n)
     """
     if qubitIndex not in range(n):
@@ -257,7 +257,7 @@ def tensorWithSingleQubitGate(singleQubitOperator: np.ndarray, n: int, qubitInde
     qubitGateList = [np.identity(2)] * n
     # Substitute the i-th gate with the given gate
     qubitGateList[qubitIndex] = singleQubitOperator
-    # Use tensor function to obtain the composite unitary
+    # Use tensor function to obtain the composite unitary operator
     U = tensor(qubitGateList)
     return U
 
@@ -344,7 +344,7 @@ def removeGlobalPhase(U: np.ndarray) -> np.ndarray:
     We aim to remove the global phase `e^{i\alpha}` from the unitary matrix.
     See Theorem 4.1 in `Nielsen & Chuang`'s book for details.
 
-    :param U: the matrix representation of the 2*2 unitary
+    :param U: the matrix representation of the 2*2 unitary operator
     :return: the unitary matrix whose global phase has been removed
     """
     alpha = globalPhase(U)

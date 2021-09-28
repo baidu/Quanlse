@@ -20,16 +20,16 @@ Example: Quanlse Scheduler
 Please visit https://quanlse.baidu.com/#/doc/tutorial-scheduler for more details about this example.
 """
 
-import numpy
-from numpy import identity
-
-from Quanlse.QOperation.FixedGate import X, H, CZ, CNOT
-from Quanlse.Utils.Functions import tensor, basis, project
-from Quanlse.Simulator.PulseSim3Q import pulseSim3Q
-from Quanlse.Scheduler.Superconduct.DefaultPipeline import defaultPipeline
+from Quanlse.QOperation.FixedGate import H, CZ, X, Y
+from Quanlse.QOperation.RotationGate import RX, RY
+from Quanlse.Utils.Functions import basis
+from Quanlse.Simulator.PulseSim2Q import pulseSim2Q
+from Quanlse.Scheduler.Superconduct.PipelineCenterAligned import centerAligned
 from Quanlse.remoteSimulator import remoteSimulatorRunHamiltonian as runHamiltonian
-from Quanlse import Define
 
+from Quanlse import Define
+from Quanlse.Utils.Functions import computationalBasisList
+from Quanlse.Utils.Plot import plotBarGraph
 
 # Your token:
 # Please visit http://quantum-hub.baidu.com
@@ -40,41 +40,23 @@ Define.hubToken = ''
 # ---------------------------------
 
 # Sampling period.
-dt = 0.5
+dt = 0.01
 
-# Instantiate the simulator object by a 3-qubit template.
-model = pulseSim3Q(dt=dt)
+# Instantiate the simulator object by a 2-qubit template.
+model = pulseSim2Q(dt=dt, frameMode='lab')
+model.savePulse = False
 sysLevel = model.sysLevel
 qubitNum = model.subSysNum
 
-# Set the scheduling strategy.
-model.pipeline.addPipelineJob(defaultPipeline())
+# Set the center-aligned scheduling sctrategy
+model.pipeline.addPipelineJob(centerAligned)
 
-# Add pulse sequence.
+# Define circuit
 H(model.Q[0])
 H(model.Q[1])
 CZ(model.Q[0], model.Q[1])
-H(model.Q[1])
-H(model.Q[2])
-CZ(model.Q[1], model.Q[2])
-H(model.Q[2])
+H(model.Q[0])
 
-# --------------------------------
-# Get target unitary of the scheduler.
-# --------------------------------
-
-# Define layers and calculate the unitary of each layer.
-Hm, CZm, Xm, IDm, CNOTm = H.getMatrix(), CZ.getMatrix(), X.getMatrix(), identity, CNOT.getMatrix()
-layers = [
-    tensor(Hm, IDm(4)),
-    tensor(CNOTm, IDm(2)),
-    tensor(IDm(2), CNOTm)
-]
-
-# Get the target unitary.
-uGoal = IDm(2 ** qubitNum)
-for mat in layers:
-    uGoal = mat @ uGoal
 
 # --------------------------------
 # Run the simulation and show the results.
@@ -84,19 +66,10 @@ for mat in layers:
 job = model.schedule()
 job.plot()
 
-# Run the simulation.
-uReal = runHamiltonian(ham=model.ham, job=job)[0]["unitary"]
-stateReal = project(uReal, qubitNum, 3, 2) @ basis(2 ** qubitNum, 0)
+# Calculate final state
+finalState = model.simulate(
+    job=job, state0=basis(model.sysLevel ** model.subSysNum, 0), shot=1000)
 
-# Calculate the difference.
-stateGoal = uGoal @ basis(2 ** qubitNum, 0)
-popReal = numpy.square(numpy.abs(stateReal))
-popGoal = numpy.square(numpy.abs(stateGoal))
-popDiff = numpy.abs(popReal - popGoal)
-print("Difference:\n", popDiff)
-print("popReal:\n", popReal)
-print("popGoal:\n", popGoal)
-
-# Print the maximum infidelity.
-inf = numpy.max(popDiff)
-print("Maximum inf:", inf)
+# Plot the population of computational basis
+plotBarGraph(computationalBasisList(2, 3), finalState[0]["population"], 
+             "Counts of the computational basis", "Computational Basis", "Counts")

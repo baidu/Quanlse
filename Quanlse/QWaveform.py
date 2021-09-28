@@ -19,31 +19,47 @@ r"""
 In a superconducting quantum system, the control Hamiltonian represents external
 control (microwave, magnetic flux etc.) acting on the qubits.
 
-In Quanlse, users can use function ``addWave()`` to define and add wave to system.
+In Quanlse, users can use function ``addWave()`` or ``appendWave()`` to define and add wave to system.
 Additionally, users can use ``clearWaves()`` to clear all waveforms in the specified control term.
 
-Here, we will take ``addWave()`` to define and add the control wave. Each waveform
-function ``A(t)`` can be defined using four arguments: start time ``t0``, duration ``t``
-and the corresponding parameters ``a``, ``tau``, ``sigma``. The function ``addWave()`` allows us
-to define waveforms in different ways:
+Here, we will take ``addWave()`` or ``appendWave()`` to define and add the control wave. Each waveform
+function ``A(t)`` can be defined using four arguments: start time ``t0``, duration ``t`` and the
+corresponding parameters ``a``, ``tau``, ``sigma``. The function ``addWave()`` or ``appendWave()``
+allows us to define waveforms in different ways:
 
-**Example 1: using preset waveform functions**
+**Example 1: using ``addWave()`` to add preset waveform functions**
 
 Users can use the preset waveforms, here we use the Gaussian wave ``gaussian`` as an example:
 
 .. code-block:: python
 
-        ham.addWave(driveX(3), onSubSys=0, waves=gaussian(t0=0, t=20, a=1.1, tau=10, sigma=4))
+        ham.addWave(driveX, onSubSys=0, waves=gaussian(t=20, a=1.1, tau=10, sigma=4), t0=0)
 
-**Example 2: using user-defined wave functions**
+**Example 2: using ``appendWave()`` to append preset waveform functions to the end of the sequence**
+
+Users can use the preset waveforms, here we use the Gaussian wave ``gaussian`` as an example. The following
+codes can append the waveform to the end of the existing sequence of the current control term `driveX`:
+
+.. code-block:: python
+
+        ham.appendWave(driveX, onSubSys=0, waves=gaussian(t=20, a=1.1, tau=10, sigma=4))
+
+Users also can set ``compact`` parameter to ``False`` to append the waveform into the end of the whole sequence
+of all control terms:
+
+.. code-block:: python
+
+        ham.appendWave(driveX, onSubSys=0, waves=gaussian(t=20, a=1.1, tau=10, sigma=4), compact=False)
+
+**Example 3: using user-defined wave functions**
 
 Users can also define a function in the form of ``func(_t, args)``, where the first parameter ``_t`` is the time
 duration and ``args`` is the pulse parameters.
 
 .. code-block:: python
 
-        def userWaveform(t0: Union[int, float], t: Union[int, float], a: float, tau: float, sigma: float,
-                     omega: float = None, phi: float = None) -> QWaveform:
+        def userWaveform(t: Union[int, float], a: float, tau: float, sigma: float,
+                         freq: float = None, phase: float = None) -> QWaveform:
             def func(_t, args):
                 _a, _tau, _sigma = args
                 if _sigma == 0:
@@ -51,10 +67,10 @@ duration and ``args`` is the pulse parameters.
                 pulse = _a * exp(- ((_t - _tau) ** 2 / (2 * _sigma ** 2)))
                 return pulse
 
-            wave = QWaveform(f=func, t0=t0, t=t, args=(a, tau, sigma), omega=omega, phi=phi)
+            wave = QWaveform(f=func, t=t, args=(a, tau, sigma), freq=freq, phase=phase)
             wave.name = "user-defined wave"
             return wave
-        ham.addWave(driveX(3), onSubSys=0, waves=userWaveform(t0=0, t=20, a=1.1, tau=10, sigma=4))
+        ham.addWave(driveX, onSubSys=0, waves=userWaveform(t=20, a=1.1, tau=10, sigma=4), t0=0)
 
 
 For more details, please visit https://quanlse.baidu.com/#/doc/tutorial-construct-ham.
@@ -64,45 +80,62 @@ import copy
 import math
 import pickle
 import base64
+import numpy
 
-from math import floor, exp, sqrt, pi, cos
+from math import floor, sqrt, pi, atan
 from scipy.special import erf
 import matplotlib.pyplot as plt
 from collections.abc import KeysView
-from numpy import array, shape, linspace, arange
+from numpy import array, shape, linspace, arange, exp, sign
 from typing import Dict, Any, List, Union, Tuple, Callable, Optional
 
 from Quanlse.QPlatform import Error
 from Quanlse.QOperator import QOperator, driveX, driveY
 from Quanlse.Utils.Plot import plotPulse
-from Quanlse.Utils.Functions import generateOperatorKey, combineOperatorAndOnSubSys
+from Quanlse.Utils.Functions import generateOperatorKey, combineOperatorAndOnSubSys, formatOperatorInput
 
-QWAVEFORM_FLAG_ALWAYS_ON = 0b001  # type: int
+QWAVEFORM_FLAG_ALWAYS_ON = 0b00001  # type: int
 """
-QWaveform Flag: Users can input this flag to ``QJob.addWave()`` method to 
+QWaveform Flag: Users can input this flag to ``QJob.addWave()`` or ``QJob.appendWave()`` method to 
 realize following function:
 
 The waveform added will ignore the provided gate time, and adjust the gate time
 according to the ``maxEndTime`` of the QJob.
 """
 
-QWAVEFORM_FLAG_DO_NOT_CLEAR = 0b010  # type: int
+QWAVEFORM_FLAG_DO_NOT_CLEAR = 0b00010  # type: int
 """
-QWaveform Flag: Users can input this flag to ``QJob.addWave()`` method to 
+QWaveform Flag: Users can input this flag to ``QJob.addWave()`` or ``QJob.appendWave()`` method to 
 realize following function:
 
-The waveform added will never be cleared by ``QJob.clearWaves()`` method,
+The waveform added will never be cleared by ``QJob.clearWaves()`` or ``QJob.appendWave()`` method,
 and will be saved in a QHamiltonian instance, instead of a QJob instance.
 Hence, when the QJob instance has no parent instance (QHamiltonian), no
 QWAVEFORM_FLAG_DO_NOT_CLEAR waveform can be added.
 """
 
-QWAVEFORM_FLAG_DO_NOT_PLOT = 0b100  # type: int
+QWAVEFORM_FLAG_DO_NOT_PLOT = 0b00100  # type: int
 """
-QWaveform Flag: Users can input this flag to ``QJob.addWave()`` method to 
+QWaveform Flag: Users can input this flag to ``QJob.addWave()`` or ``QJob.appendWave()`` method to 
 realize following function:
 
 The waveform added will be ignored by ``QJob.plot()``.
+"""
+
+QWAVEFORM_FLAG_PHASE_SHIFT = 0b01000  # type: int
+"""
+QWaveform Flag: Users can input this flag to ``QJob.addWave()`` or ``QJob.appendWave()`` method to 
+realize following function:
+
+The waveform cause some amount of phase shift. The amplitude will be ignore.
+"""
+
+QWAVEFORM_FLAG_MIX_WAVE = 0b10000  # type: int
+"""
+QWaveform Flag: Users can input this flag to ``QJob.addWave()`` or ``QJob.appendWave()`` method to 
+realize following function:
+
+This kind of waveform mix the two waves following the rules of microwave signal.
 """
 
 
@@ -121,15 +154,16 @@ class QWaveform:
     :param seq: users can also input a python list consisting the wave sequence
     :param dt: AWG sampling time
     :param strength: wave strength
-    :param omega: pulse frequency
-    :param phi: pulse phase
+    :param freq: pulse frequency shift
+    :param phase: pulse phase shift (will accumulate during the entire pulse execution)
+    :param phase0: pulse phase shift (will not accumulate during the entire pulse execution)
     :param tag: wave tag indicating purpose
     :param flag: wave flag
     """
 
     def __init__(self, f: Callable = None, t0: Union[int, float] = 0.0, t: Union[int, float] = 0.0,
                  args: Any = None, seq: List[float] = None, dt: float = None, strength: float = 1.,
-                 omega: float = None, phi: float = None, tag: str = None, flag: int = 0) -> None:
+                 freq: float = None, phase: float = None, phase0: float = None, tag: str = None, flag: int = 0) -> None:
         """
         Constructor for QWaveform class.
         """
@@ -143,7 +177,7 @@ class QWaveform:
             # Record necessary information of the wave
             self.func = None  # type: Optional[Union[Callable, str]]
             self.t = None  # type: Optional[float]
-            self.seq = copy.deepcopy(seq)  # type: Optional[List[float]]
+            self.seq = copy.deepcopy(seq)  # type: Optional[List[Union[float, complex]]]
             self.args = None  # type: Optional[Any]
         elif callable(f) or isinstance(f, str):
             if seq is not None:
@@ -151,7 +185,7 @@ class QWaveform:
             # Record necessary information of the wave
             self.func = f  # type: Optional[Union[Callable, str]]
             self.t = t  # type: Optional[float]
-            self.seq = None  # type: Optional[List[float]]
+            self.seq = None  # type: Optional[List[Union[float, complex]]]
             self.args = copy.deepcopy(args)  # type: Optional[Any]
         else:
             raise Error.ArgumentError("Unsupported type of input for func, it should either"
@@ -162,8 +196,9 @@ class QWaveform:
         self.name = ""  # type: Optional[str]
         self.dt = None if dt is None else float(dt)  # type: Optional[float]
         self.strength = float(strength)  # type: float
-        self.omega = omega  # type: Optional[float]
-        self.phi = phi  # type: Optional[float]
+        self.freq = freq  # type: Optional[float]
+        self.phase = phase  # type: Optional[float]
+        self.phase0 = phase0  # type: Optional[float]
         self.tag = tag  # type: Optional[str]
         self.flag = flag  # type: int
 
@@ -178,8 +213,8 @@ class QWaveform:
         returnStr += f"    - t: {self.t}\n"
         returnStr += f"    - seq: {None if self.seq is None else len(self.seq)}\n"
         returnStr += f"    - args: {self.args}\n"
-        returnStr += f"    - omega: {self.omega}\n"
-        returnStr += f"    - phi: {self.phi}\n"
+        returnStr += f"    - freq: {self.freq}\n"
+        returnStr += f"    - phase: {self.phase}\n"
         returnStr += f"    - drive strength: {self.strength}\n"
         returnStr += f"    - flag: {self.flag}\n"
 
@@ -204,7 +239,7 @@ class QWaveform:
                 raise Error.ArgumentError("Property dt is not set, cannot used to call a sequence-type QWaveform.")
             realTime = t
             if int(realTime / self.dt) >= len(self.seq):
-                return self.seq[-1]
+                return 0.0
             else:
                 return self.seq[int(realTime / self.dt)]
         else:
@@ -242,7 +277,7 @@ class QWaveform:
             for nowDt in range(endTimeDt):
                 nowNs = nowDt * dt + _dt / 2
                 seqList.append(self(nowNs))
-            wave = sequence(t0=self.t0, seq=seqList, omega=self.omega, phi=self.phi)
+            wave = sequence(t0=self.t0, seq=seqList, freq=self.freq, phase=self.phase)
             wave.tag = self.tag
             wave.flag = self.flag
             wave.dt = _dt
@@ -309,10 +344,22 @@ class QWaveform:
         :return: returned base64 encoded string
         """
         obj = self.waveFunctionToSequence(dt)
+        # For compatibility with previous versions
+        if not hasattr(obj, "omega"):
+            obj.omega = obj.freq
+            obj.phi = 0.
+        if not hasattr(obj, "phi"):
+            obj.phi = obj.phase0
         byteStr = pickle.dumps(obj)
         base64str = base64.b64encode(byteStr)
         del obj
         return base64str.decode()
+
+    def copy(self) -> 'QWaveform':
+        """
+        Return the copy of the object
+        """
+        return copy.deepcopy(self)
 
     @staticmethod
     def load(base64Str: str) -> 'QWaveform':
@@ -324,6 +371,13 @@ class QWaveform:
         """
         byteStr = base64.b64decode(base64Str.encode())
         obj = pickle.loads(byteStr)  # type: QWaveform
+        # For compatibility with previous versions
+        if not hasattr(obj, "freq"):
+            obj.freq = obj.omega if hasattr(obj, "omega") else None
+        if not hasattr(obj, "phase0"):
+            obj.phase0 = obj.phi if hasattr(obj, "phi") else None
+        if not hasattr(obj, "phase"):
+            obj.phase = None
         return obj
 
 
@@ -362,6 +416,8 @@ class QJob:
         self._ctrlOperators = {}  # type: Dict[str, Union[QOperator, List[QOperator]]]
         # List of QWaveform
         self._waves = {}  # type: Dict[str, Any]
+        # List of local oscillator
+        self._LO = {}  # type: Dict[str, Tuple[float, float]]
         # Sequence of cache for QWaveform
         self._waveCache = {}  # type: Dict[str, Any]
         # Parent object (QHamiltonian)
@@ -401,8 +457,8 @@ class QJob:
                 waveName = "No name" if wave.name is None or wave.name == '' else wave.name
                 seqLen = f"{len(wave.seq)} pieces" if wave.seq is not None else 'None'
                 returnStr += f"    - [{wave.tag}] {waveName}: t0={wave.t0}, t={wave.t}, args={wave.args}, " \
-                             f"seq={seqLen}, strength={wave.strength}, omega={wave.omega}, " \
-                             f"phi={wave.phi}.\n"
+                             f"seq={seqLen}, strength={wave.strength}, freq={wave.freq}, " \
+                             f"phase={wave.phase}.\n"
 
         return returnStr
 
@@ -458,6 +514,17 @@ class QJob:
     @waveCache.deleter
     def waveCache(self):
         del self._waveCache
+
+    @property
+    def LO(self) -> Dict[str, Any]:
+        """
+        Return the cache of the pulses.
+        """
+        return self._LO
+
+    @LO.setter
+    def LO(self, value: Dict[str, Tuple[float, float]]):
+        self._LO = copy.deepcopy(value)
 
     @property
     def waves(self) -> Dict[str, Union[QWaveform, List[QWaveform]]]:
@@ -550,21 +617,73 @@ class QJob:
             raise Error.ArgumentError("dt must be larger than 0!")
         self._dt = value
 
-    def addWave(self, operators: Union[QOperator, List[QOperator]] = None, onSubSys: Union[int, List[int]] = None,
-                waves: Union[QWaveform, List[QWaveform]] = None, strength: Union[int, float] = 1.0,
-                omega: Optional[Union[int, float]] = None, phi: Optional[Union[int, float]] = None,
-                name: str = None, tag: str = None, flag: int = None) -> None:
+    def appendWave(self, operators: Union[QOperator, Callable, List[QOperator], List[Callable]] = None,
+                   onSubSys: Union[int, List[int]] = None, waves: Union[QWaveform, List[QWaveform]] = None,
+                   strength: Union[int, float] = 1.0, freq: Optional[Union[int, float]] = None,
+                   phase: Optional[Union[int, float]] = None, phase0: Optional[Union[int, float]] = None,
+                   name: str = None, tag: str = None, shift: float = 0.0, compact: bool = True):
         """
-        This method adds control terms and waveforms to a QJob object. Users can specify the operators(QOperator object)
-        , subsystem's indexes, wave information(QWaveform object), wave strength, wave frequency, wave phase. Moreover,
-        the users can specify a tag and flag for identifying the purposes of the wave.
+        This method appends control terms and waveforms to a QJob object. Unlike `addWave()`, this function will append
+        the waveform in the end of the existing waveforms, hence ignore the `t0` parameter of rhe `QWaveform` object.
 
         :param operators: wave operator
         :param onSubSys: what subsystem the wave is acting upon
         :param waves: a QWaveform object
         :param strength: wave strength
-        :param omega: wave frequency
-        :param phi: wave phase
+        :param freq: wave frequency shift
+        :param phase: pulse phase shift (will accumulate during the entire pulse execution)
+        :param phase0: pulse phase shift (will not accumulate during the entire pulse execution)
+        :param name: a user-given name to the wave
+        :param tag: wave tag indicating purpose
+        :param shift: time shift of the added wave
+        :param compact: the added wave will be left aligned in specified control terms if True.
+        :return: None
+        """
+        # When searching for the waves, we do not filter the waves by the tags.
+        wavesDict = self.searchWave(operators, onSubSys, names=name)
+        maxTime = 0.
+        if compact:
+            # When compact is True, the wave will be appended to the final time of the existed waves from the
+            #     specific control term.
+            for waveKey in wavesDict.keys():
+                if len(wavesDict[waveKey]) > 0:
+                    for waveform in wavesDict[waveKey]:
+                        if waveform.flag & QWAVEFORM_FLAG_ALWAYS_ON > 0:
+                            continue
+                        if waveform.seq is not None:
+                            finalNs = waveform.t0 + len(waveform.seq) * self.dt
+                        else:
+                            finalNs = waveform.t0 + waveform.t
+                        if maxTime < finalNs:
+                            maxTime = finalNs
+        else:
+            # When compact is False, the wave will the appended to the final time of all existed waves of all
+            #     control terms.
+            maxTime, _ = self.computeMaxTime()
+
+        # Finally, the start time of the appended wave is the maxTime plus the time shift value.
+        t0 = maxTime + shift
+        self.addWave(operators, onSubSys, waves, t0, strength, freq, phase, phase0, name, tag, None)
+
+    def addWave(self, operators: Union[QOperator, Callable, List[QOperator], List[Callable]] = None,
+                onSubSys: Union[int, List[int]] = None, waves: Union[QWaveform, List[QWaveform]] = None,
+                t0: Union[int, float] = None, strength: Union[int, float] = 1.0,
+                freq: Optional[Union[int, float]] = None, phase: Optional[Union[int, float]] = None,
+                phase0: Optional[Union[int, float]] = None, name: str = None, tag: str = None, flag: int = None) \
+            -> None:
+        """
+        This method adds control terms and waveforms to a QJob object. Users can specify the operators(QOperator object)
+        , subsystem's indexes, wave information (QWaveform object), wave strength, wave frequency, wave phase. Moreover,
+        the users can specify a tag and flag for identifying the purposes of the wave.
+
+        :param operators: wave operator
+        :param onSubSys: what subsystem the wave is acting upon
+        :param waves: a QWaveform object
+        :param t0: start time
+        :param strength: wave strength
+        :param freq: wave frequency shift
+        :param phase: pulse phase shift (will accumulate during the entire pulse execution)
+        :param phase0: pulse phase shift (will not accumulate during the entire pulse execution)
         :param name: a user-given name to the wave
         :param tag: wave tag indicating purpose
         :param flag: wave flag
@@ -574,8 +693,9 @@ class QJob:
         def _addOperator(_flag):
             """ Add Operator """
             if operators is not None and onSubSys is not None:
-                _opKey = self.addOperators(copy.deepcopy(operators), onSubSys, name=name,
-                                          flagDoNotClear=(_flag & QWAVEFORM_FLAG_DO_NOT_CLEAR) > 0)
+                # Generate the operator key
+                _opKey = self.addOperators(operators, onSubSys, name=name,
+                                           flagDoNotClear=(_flag & QWAVEFORM_FLAG_DO_NOT_CLEAR) > 0)
             elif name is not None:
                 _opKey = name
             else:
@@ -599,27 +719,32 @@ class QJob:
                 _containerWaves = self._waves
             return _realFlag, _containerWaves
 
-        if isinstance(waves, list):
-            for wave in waves:
+        _waves = waves.copy()
+        if isinstance(_waves, list):
+            for wave in _waves:
                 _flag, containerWaves = _getFlagAndWaveContainer(wave)
                 opKey = _addOperator(_flag)
                 wave.dt = self.dt
+                wave.t0 = wave.t0 if t0 is None else t0
                 wave.strength = wave.strength if strength is None else strength
-                wave.omega = wave.omega if omega is None else omega
-                wave.phi = wave.phi if phi is None else phi
+                wave.freq = wave.freq if freq is None else freq
+                wave.phase = wave.phase if phase is None else phase
+                wave.phase0 = wave.phase0 if phase0 is None else phase0
                 wave.tag = wave.tag if tag is None else tag
                 wave.flag = _flag
-                containerWaves[opKey].append(copy.deepcopy(wave))
-        elif isinstance(waves, QWaveform):
-            _flag, containerWaves = _getFlagAndWaveContainer(waves)
+                containerWaves[opKey].append(wave)
+        elif isinstance(_waves, QWaveform):
+            _flag, containerWaves = _getFlagAndWaveContainer(_waves)
             opKey = _addOperator(_flag)
-            waves.dt = self.dt
-            waves.strength = waves.strength if strength is None else strength
-            waves.omega = waves.omega if omega is None else omega
-            waves.phi = waves.phi if phi is None else phi
-            waves.tag = waves.tag if tag is None else tag
-            waves.flag = _flag
-            containerWaves[opKey].append(copy.deepcopy(waves))
+            _waves.dt = self.dt
+            _waves.t0 = _waves.t0 if t0 is None else t0
+            _waves.strength = _waves.strength if strength is None else strength
+            _waves.freq = _waves.freq if freq is None else freq
+            _waves.phase = _waves.phase if phase is None else phase
+            _waves.phase0 = _waves.phase0 if phase0 is None else phase0
+            _waves.tag = _waves.tag if tag is None else tag
+            _waves.flag = _flag
+            containerWaves[opKey].append(_waves)
         else:
             raise Error.ArgumentError("Parameter waves must be a (or a list of) QWaveform object(s).")
 
@@ -627,16 +752,17 @@ class QJob:
         self.computeMaxTime()
         self.clearCache()
 
-    def addWaveRot(self, onSubSys: int, waves: Union[QWaveform, List[QWaveform]],
-                   detuning: Union[int, float] = 0.0, phi: Union[int, float] = 0.0, tag: str = None) -> None:
+    def addWaveRot(self, onSubSys: int, waves: Union[QWaveform, List[QWaveform]], t0: Union[int, float] = None,
+                   detuning: Union[int, float] = 0.0, phase: Union[int, float] = 0.0, tag: str = None) -> None:
         """
         Add the control terms for the two-qubit cross-resonance effect in
         the rotating frame with the frequency of the diagonal elements of drift term.
 
         :param onSubSys: what subsystem the wave is acting upon
         :param waves: a QWaveform object
+        :param t0: start time
         :param detuning: wave's corresponding detuning
-        :param phi: wave phase
+        :param phase: wave phase
         :param tag: wave tag
         :return: None
         """
@@ -646,13 +772,29 @@ class QJob:
         elif isinstance(self.sysLevel, int):
             levelList = [self.sysLevel for _ in range(self.subSysNum)]
 
-        self.addWave(operators=driveX(levelList[onSubSys]), onSubSys=onSubSys,
-                     waves=copy.deepcopy(waves), omega=detuning, phi=phi, tag=tag)
-        self.addWave(operators=driveY(levelList[onSubSys]), onSubSys=onSubSys,
-                     waves=copy.deepcopy(waves), omega=detuning, phi=phi + pi / 2, tag=tag)
+        self.addWave(operators=driveX(levelList[onSubSys]), onSubSys=onSubSys, t0=t0,
+                     waves=copy.deepcopy(waves), freq=detuning, phase0=phase, tag=tag)
+        self.addWave(operators=driveY(levelList[onSubSys]), onSubSys=onSubSys, t0=t0,
+                     waves=copy.deepcopy(waves), freq=detuning, phase0=phase + pi / 2, tag=tag)
 
-    def addOperators(self, operators: Union[QOperator, List[QOperator]], onSubSys: Union[int, List[int]],
-                     name: str = None, flagDoNotClear: bool = False) -> str:
+    def setLO(self, operators: Union[QOperator, Callable, List[QOperator], List[Callable]],
+              onSubSys: Union[int, List[int]], name: str = None, freq: float = 1.0, phase: float = 0.0):
+        """
+        Add local oscillator for specific control terms.
+
+        :param operators: QOperator object(s)
+        :param onSubSys: what subsystem the wave is acting upon
+        :param name: user-defined operator name
+        :param freq: the frequency of the local oscillator
+        :param phase: the phase between the local oscillator and the waveform
+        """
+        # Add the operator
+        opKey = self.addOperators(operators, onSubSys, name)
+        # Set the local oscillator frequency and the phase
+        self._LO[opKey] = (freq, phase)
+
+    def addOperators(self, operators: Union[QOperator, Callable, List[QOperator], List[Callable]],
+                     onSubSys: Union[int, List[int]], name: str = None, flagDoNotClear: bool = False) -> str:
         """
         Add control terms onto the specified subsystem.
 
@@ -661,7 +803,10 @@ class QJob:
         :param name: user-defined operator name
         :param flagDoNotClear: whether this operator will be cleared
         """
-        if operators is not None and onSubSys is None:
+
+        _operators = formatOperatorInput(operators, onSubSys, self.sysLevel)
+
+        if _operators is not None and onSubSys is None:
             # Input the complete matrices directly.
             if isinstance(self._sysLevel, int):
                 dim = self._sysLevel ** self._subSysNum
@@ -672,14 +817,14 @@ class QJob:
             else:
                 raise Error.ArgumentError(f"Unsupported type of self._sysLevel ({type(self._sysLevel)}).")
 
-            if not shape(operators.matrix) == (dim, dim):
+            if not shape(_operators.matrix) == (dim, dim):
                 raise Error.ArgumentError(f"Dimension of operator ({dim}, {dim}) does not match the sysLevel.")
 
-            operatorForSave = operators
+            operatorForSave = _operators
         else:
             # If users input the onSubSys, combineOperatorAndOnSubSys will update the onSubSys of
             #     the operators.
-            operatorForSave = combineOperatorAndOnSubSys(self._subSysNum, operators, onSubSys)
+            operatorForSave = combineOperatorAndOnSubSys(self._subSysNum, _operators, onSubSys)
 
         # Set the name if it is given
         if name is not None:
@@ -745,8 +890,9 @@ class QJob:
         else:
             raise Error.ArgumentError(f"Unsupported type ({type(obj)}), only QJob is supported.")
 
-    def clearWaves(self, operators: Union[QOperator, List[QOperator]] = None, onSubSys: Union[int, List[int]] = None,
-                   names: Union[str, List[str]] = None, tag: str = None) -> None:
+    def clearWaves(self, operators: Union[QOperator, Callable, List[QOperator], List[Callable]] = None,
+                   onSubSys: Union[int, List[int]] = None, names: Union[str, List[str]] = None,
+                   tag: str = None) -> None:
         """
         Remove all waveforms in the specified control terms.
         If no names are given, remove all waveforms in all control terms.
@@ -762,13 +908,14 @@ class QJob:
             # Set the name if it is given
             opKey = names
         elif operators is not None and onSubSys is not None:
+            _operators = formatOperatorInput(operators, onSubSys, self.sysLevel)
             # If users input the onSubSys, combineOperatorAndOnSubSys will update the onSubSys of
             #     the operators.
-            operatorForSave = combineOperatorAndOnSubSys(self._subSysNum, operators, onSubSys)
+            operatorForSave = combineOperatorAndOnSubSys(self._subSysNum, _operators, onSubSys)
             # Use function generateOperatorKey to generate the key of the operators.
-            if isinstance(operators, list):
+            if isinstance(_operators, list):
                 opKey = []
-                for op in operators:
+                for op in _operators:
                     opKey.append(generateOperatorKey(self.subSysNum, op))
             else:
                 opKey = generateOperatorKey(self.subSysNum, operatorForSave)
@@ -809,7 +956,7 @@ class QJob:
         self._ctrlOperators = newCtrlOperators
         self.computeMaxTime()
 
-    def searchWave(self, operators: Union[QOperator, List[QOperator]] = None,
+    def searchWave(self, operators: Union[QOperator, Callable, List[QOperator], List[Callable]] = None,
                    onSubSys: Union[int, List[int]] = None, names: Union[str, List[str]] = None, tag: str = None):
         """
         Search waves by different methods.
@@ -819,18 +966,19 @@ class QJob:
         :param names: search by name
         :param tag: search by tag
         """
-        return self.searchWaveTool(self._waves, self._subSysNum, operators, onSubSys, names, tag)
+        return self.searchWaveTool(self._waves, self._subSysNum, self._sysLevel, operators, onSubSys, names, tag)
 
     @staticmethod
-    def searchWaveTool(container: Dict[str, List[QWaveform]], subSysNum: int,
-                       operators: Union[QOperator, List[QOperator]] = None, onSubSys: Union[int, List[int]] = None,
-                       names: Union[str, List[str]] = None, tag: str = None)\
-            -> Dict[str, List[QWaveform]]:
+    def searchWaveTool(container: Dict[str, List[QWaveform]], subSysNum: int, sysLevel: Union[int, List[int]],
+                       operators: Union[QOperator, Callable, List[QOperator], List[Callable]] = None,
+                       onSubSys: Union[int, List[int]] = None, names: Union[str, List[str]] = None,
+                       tag: str = None) -> Dict[str, List[QWaveform]]:
         """
         Search waves by different methods.
 
         :param container: input dictionary
         :param subSysNum: subsystem number
+        :param sysLevel: the system levels
         :param operators: search by operator
         :param onSubSys: search by subsystem
         :param names: search by name
@@ -864,11 +1012,12 @@ class QJob:
                 raise Error.ArgumentError("Variable names should be a list or int.")
         elif operators is not None and onSubSys is not None:
             # When names (of the operators) is None, then find the waves by the operators with onSubSys.
+            formattedOperators = formatOperatorInput(operators, onSubSys, sysLevel)
             if isinstance(operators, list) and isinstance(onSubSys, list):
-                _operators = operators
+                _operators = formattedOperators
                 _onSubSys = onSubSys
             else:
-                _operators = [operators]
+                _operators = [formattedOperators]
                 _onSubSys = [onSubSys]
 
             if len(_operators) != len(_onSubSys):
@@ -951,17 +1100,19 @@ class QJob:
         counting = self.buildWaveCache(tag=tag, forPlot=True)
         # Plot waves
         plotNames = []
+        isComplex = False
         for name in names:
             if name not in counting.keys() or counting[name] < 1:
                 continue
-
             aList = array(self._waveCache[name])
             tList = linspace(0, maxNs, len(aList))
             y.append(list(aList))
             x.append(list(tList))
             yLabel.append(yUnit)
             plotNames.append(name)
-
+            # If the amplitues are complex number
+            if aList.dtype in [numpy.complex, numpy.complex128]:
+                isComplex = True
             # Whether repetitive colors or all blue
             if color is None:
                 colors.append('blue')
@@ -971,7 +1122,8 @@ class QJob:
                 if colorIndex == len(color):
                     colorIndex = 0
             fig += 1
-        plotPulse(x, y, xLabel=f'Time ({xUnit})', yLabel=yLabel, title=plotNames, color=colors, dark=dark)
+        plotPulse(x, y, xLabel=f'Time ({xUnit})', yLabel=yLabel, title=plotNames,
+                  color=colors, dark=dark, complx=isComplex)
         plt.show()
         self.clearCache()
 
@@ -1108,9 +1260,10 @@ class QJob:
             self._waveCache[key] = _sequence
         return waveCounting
 
-    def generatePulseSequence(self, operators: Union[QOperator, List[QOperator]] = None,
+    def generatePulseSequence(self, operators: Union[QOperator, Callable, List[QOperator], List[Callable]] = None,
                               onSubSys: Union[int, List[int]] = None, name: str = None, tag: str = None,
-                              forPlot: bool = False, counting: Dict[str, int] = None) -> List[float]:
+                              forPlot: bool = False, counting: Dict[str, int] = None,
+                              phaseList: List[int] = None) -> List[Union[float, complex]]:
         """
         Generate the piecewise-constant pulse sequence according to the waveform configurations during
         the whole evolution time.
@@ -1121,31 +1274,49 @@ class QJob:
         :param tag: the tag of the waveforms
         :param forPlot: whether the sequence is for plotting
         :param counting: the waveform counting for all control terms
+        :param phaseList: the list of phase on every time piece
 
         :return: the list of pulse sequence
         """
-        sequenceList = []
+
+        _sequenceList = []
+        _phaseList = []
         self.computeMaxTime()
+
         # Generate waveKey
         if name is not None:
             waveKey = name
         elif operators is not None and onSubSys is not None:
-            operatorForSearch = combineOperatorAndOnSubSys(self._subSysNum, operators, onSubSys)
+            _operators = formatOperatorInput(operators, onSubSys, self._sysLevel)
+            operatorForSearch = combineOperatorAndOnSubSys(self._subSysNum, _operators, onSubSys)
             waveKey = generateOperatorKey(self.subSysNum, operatorForSearch)
         else:
             raise Error.ArgumentError("You must indicate the operators with onSubSys or the name of the term.")
-        # Combine all waves
+
+        # Combine all waves (waves from current QJob instance and the parent QHamiltonian instance)
         combinedWaves = []
         if waveKey in self.waves:
             combinedWaves.extend(copy.deepcopy(self.waves[waveKey]))
         if self.parent is not None and waveKey in self.parent.doNotClearFlagWaves.keys():
             combinedWaves.extend(copy.deepcopy(self.parent.doNotClearFlagWaves[waveKey]))
+
+        # A register for recording the phase accumulation for every control term.
+        #     The values in this register may change over time.
+        phaseAcc = {}
+        phaseAccList = []
+
         # Traverse all the time slices.
         for nowDt in range(self.endTimeDt):
-            currentAmp = 0
-            nowNs = nowDt * self.dt + self.dt / 2
+            # The amount of phase
+            finalPhase = 0.
+            # The amount of amplitude
+            currentAmp = 0.
+            # The nanosecond time of this moment
+            nowNs = nowDt * self.dt + self.dt / 2.
+            # The phase waveforms can work in this time window
+            timeWindow = (nowNs - self.dt / 2., nowNs + self.dt / 2.)
             # Traverse all the waveforms
-            for waveform in combinedWaves:
+            for waveId, waveform in enumerate(combinedWaves):
                 if waveform.flag & QWAVEFORM_FLAG_DO_NOT_PLOT > 0 and forPlot is True:
                     continue
                 elif waveform.flag & QWAVEFORM_FLAG_ALWAYS_ON > 0:
@@ -1154,30 +1325,73 @@ class QJob:
                 else:
                     if tag is not None and waveform.tag != tag:
                         continue
+
+                # Count the number of waveforms of the given operator
                 if counting is not None:
                     if waveKey not in counting.keys():
                         counting[waveKey] = 0
                     counting[waveKey] += 1
+
+                # Calculate the start and end time
                 insertNs = waveform.t0
                 if waveform.seq is not None:
                     endNs = waveform.t0 + len(waveform.seq) * self.dt
                 else:
                     endNs = waveform.t0 + waveform.t
-                if insertNs <= nowNs < endNs:
+
+                # if the current waveform works
+                if waveform.flag & QWAVEFORM_FLAG_PHASE_SHIFT > 0:
+                    isWaveWorking = timeWindow[0] <= waveform.t0 < timeWindow[1]
+                else:
+                    isWaveWorking = insertNs <= nowNs < endNs
+
+                if isWaveWorking:
                     # Calculate the waveforms' amplitudes.
                     waveform.dt = self.dt
-                    if waveform.omega is not None:
-                        if waveform.phi is None:
-                            raise Error.ArgumentError("You must define the phase of the cosine waveform!")
-                        lo = cos(waveform.omega * (nowNs - waveform.t0) + waveform.phi)
-                        currentAmp += waveform(nowNs - waveform.t0) * lo
+                    if waveKey in self._LO.keys() or any([waveform.freq, waveform.phase0, waveform.phase]):
+                        # The freq and phase shift set in QWaveform object
+                        freq = 0. if waveform.freq is None else waveform.freq
+                        phase = 0. if waveform.phase is None else waveform.phase
+                        phase0 = 0. if waveform.phase0 is None else waveform.phase0
+                        # Calculate the phase of the contemporary waveform
+                        totalPhase = phase0
+                        totalFreq = freq
+                        # Plus the phase and frequency of the LO setup in QJob instance.
+                        if waveKey in self._LO.keys():
+                            totalFreq += self._LO[waveKey][0]
+                            totalPhase += self._LO[waveKey][1]
+                        # Calculate the accumulated phase in phaseAcc
+                        if waveKey not in phaseAcc.keys():
+                            phaseAcc[waveKey] = phase
+                        else:
+                            if waveId not in phaseAccList:
+                                phaseAcc[waveKey] += phase
+                                phaseAccList.append(waveId)
+                        # The constant freq and phase set in QJob
+                        totalPhase += phaseAcc[waveKey]
+                        # Calculate the final LO value
+                        if waveform.flag & QWAVEFORM_FLAG_MIX_WAVE > 0:
+                            # If the waveform is the mixture of X and Y control
+                            amp, varPhase = waveform(nowNs - waveform.t0)
+                            finalPhase = totalPhase + varPhase
+                            lo = math.cos(totalFreq * nowNs + finalPhase)
+                            currentAmp += amp * lo
+                        else:
+                            finalPhase = totalPhase
+                            lo = math.cos(totalFreq * nowNs + finalPhase)
+                            currentAmp += waveform(nowNs - waveform.t0) * lo
                     else:
                         currentAmp += waveform(nowNs - waveform.t0)
+
                     # Modify the amplitudes by drive strength and amplitude noise.
                     currentAmp = currentAmp * waveform.strength
+            _phaseList.append(finalPhase)
+            _sequenceList.append(currentAmp)
 
-            sequenceList.append(currentAmp)
-        return sequenceList
+        if phaseList is not None:
+            phaseList = _phaseList
+        del combinedWaves
+        return _sequenceList
 
     def waveFunctionsToSequences(self, maxEndTime: float = None) -> 'QJob':
         """
@@ -1201,8 +1415,8 @@ class QJob:
             # Add QWaveform
             for wave in self.waves[waveKey]:
                 seqWave = wave.waveFunctionToSequence(obj.dt, maxEndTime=maxEndTime)
-                obj.addWave(name=waveKey, waves=seqWave, tag=wave.tag, strength=wave.strength, omega=wave.omega,
-                            phi=wave.phi)
+                obj.addWave(name=waveKey, waves=seqWave, tag=wave.tag, strength=wave.strength, freq=wave.freq,
+                            phase=wave.phase)
         return obj
 
     def dump(self, maxEndTime: float = None) -> str:
@@ -1217,11 +1431,25 @@ class QJob:
         #     sequence, because functions can not the serialization.
         obj = self.waveFunctionsToSequences(maxEndTime=maxEndTime)
         obj.parent = None
+        # For compatibility with previous versions
+        for opKey in obj.waves.keys():
+            for wave in obj.waves[opKey]:
+                if not hasattr(wave, "omega"):
+                    wave.omega = wave.freq
+                    wave.phi = 0.
+                if not hasattr(wave, "phi"):
+                    wave.phi = 0. if wave.phase0 is None else wave.phase0
         # Dump the object
         byteStr = pickle.dumps(obj)
         base64str = base64.b64encode(byteStr)
         del obj
         return base64str.decode()
+
+    def copy(self) -> 'QJob':
+        """
+        Return the copy of the object
+        """
+        return copy.deepcopy(self)
 
     @staticmethod
     def load(base64Str: str) -> 'QJob':
@@ -1233,6 +1461,17 @@ class QJob:
         """
         byteStr = base64.b64decode(base64Str.encode())
         obj = pickle.loads(byteStr)  # type: QJob
+
+        # For compatibility with previous versions
+        for opKey in obj.waves.keys():
+            for wave in obj.waves[opKey]:
+                if not hasattr(wave, "freq"):
+                    wave.freq = wave.omega if hasattr(wave, "omega") else None
+                if not hasattr(wave, "phase0"):
+                    wave.phase0 = wave.phi if hasattr(wave, "phi") else None
+                if not hasattr(wave, "phase"):
+                    wave.phase = None
+
         return obj
 
 
@@ -1257,6 +1496,7 @@ class QJobList:
         self.description = description  # type: str
         self.subSysNum = subSysNum  # type: int
         self.sysLevel = sysLevel  # type: Union[int, List[int]]
+        self._LO = {}  # type: Dict[str, Tuple[float, float]]
         self.dt = dt
 
     @property
@@ -1302,6 +1542,17 @@ class QJobList:
         self._sysLevel = value
 
     @property
+    def LO(self) -> Dict[str, Any]:
+        """
+        Return the cache of the pulses.
+        """
+        return self._LO
+
+    @LO.setter
+    def LO(self, value: Dict[str, Tuple[float, float]]):
+        self._LO = copy.deepcopy(value)
+
+    @property
     def jobs(self) -> List[QJob]:
         return self._jobList
 
@@ -1312,6 +1563,7 @@ class QJobList:
         :return: returned QJob object
         """
         newJob = QJob(subSysNum=self.subSysNum, sysLevel=self.sysLevel, dt=self.dt)
+        newJob.LO = self.LO
         return newJob
 
     def addJob(self, jobs: Union[QJob, List[QJob]]) -> None:
@@ -1360,11 +1612,33 @@ class QJobList:
         for job in self._jobList:
             job.parent = None
             obj.addJob(job.waveFunctionsToSequences(maxEndTime=maxEndTime))
+
+        # For compatibility with previous versions
+        for job in obj.jobs:
+            for opKey in job.waves.keys():
+                for wave in job.waves[opKey]:
+                    if not hasattr(wave, "omega"):
+                        wave.omega = wave.freq
+                        wave.phi = 0.
+                    if not hasattr(wave, "phi"):
+                        wave.phi = 0. if wave.phase0 is None else wave.phase0
         # Dump the object
         byteStr = pickle.dumps(obj)
         base64str = base64.b64encode(byteStr)
         del obj
         return base64str.decode()
+
+    def clone(self) -> 'QJobList':
+        """
+        Return the copy of the object
+        """
+        return copy.deepcopy(self)
+
+    @staticmethod
+    def formatInputOperators() -> Union[List[QOperator], QOperator]:
+        """
+        The input operators may be the callables or the QOperator instances,
+        """
 
     @staticmethod
     def load(base64Str: str) -> 'QJobList':
@@ -1376,6 +1650,16 @@ class QJobList:
         """
         byteStr = base64.b64decode(base64Str.encode())
         obj = pickle.loads(byteStr)  # type: QJobList
+        # For compatibility with previous versions
+        for job in obj.jobs:
+            for opKey in job.waves.keys():
+                for wave in job.waves[opKey]:
+                    if not hasattr(wave, "freq"):
+                        wave.freq = wave.omega if hasattr(wave, "omega") else None
+                    if not hasattr(wave, "phase0"):
+                        wave.phase0 = wave.phi if hasattr(wave, "phi") else None
+                    if not hasattr(wave, "phase"):
+                        wave.phase = None
         return obj
 
 
@@ -1435,6 +1719,12 @@ class QResult:
         base64str = base64.b64encode(byteStr)
         return base64str.decode()
 
+    def clone(self) -> 'QResult':
+        """
+        Return the copy of the object
+        """
+        return copy.deepcopy(self)
+
     @staticmethod
     def load(base64Str: str) -> 'QResult':
         """
@@ -1447,109 +1737,162 @@ class QResult:
         return obj
 
 
-def gaussian(t0: Union[int, float], t: Union[int, float], a: float, tau: float, sigma: float,
-             omega: float = None, phi: float = None) -> QWaveform:
+def gaussian(t: Union[int, float], a: float, tau: float, sigma: float, t0: Union[int, float] = 0.,
+             freq: float = None, phase: float = None, phase0: float = None) -> QWaveform:
     """
     Return a QWaveform object of Gaussian wave.
 
-    :param t0: start time
     :param t: pulse duration
     :param a: pulse amplitude
     :param tau: pulse center position
     :param sigma: pulse standard deviation
-    :param omega: pulse frequency
-    :param phi: pulse phase
+    :param t0: start time
+    :param freq: pulse frequency shift (will not accumulate during the entire pulse execution)
+    :param phase: pulse phase shift (will accumulate during the entire pulse execution)
+    :param phase0: pulse phase shift (will not accumulate during the entire pulse execution)
     :return: returned Gaussian QWaveform
     """
 
     def func(_t, args):
+        """ The Gaussian function """
         _a, _tau, _sigma = args
         if _sigma == 0:
             return 0
         pulse = _a * exp(- ((_t - _tau) ** 2 / (2 * _sigma ** 2)))
         return pulse
 
-    wave = QWaveform(f=func, t0=t0, t=t, args=(a, tau, sigma), omega=omega, phi=phi)
+    wave = QWaveform(f=func, t0=t0, t=t, args=(a, tau, sigma), freq=freq, phase=phase, phase0=phase0)
     wave.name = "gaussian"
     return wave
 
 
-def square(t0: Union[int, float], t: Union[int, float], a: float, omega: float = None, phi: float = None) -> QWaveform:
+def square(t: Union[int, float], a: float, t0: Union[int, float] = 0., freq: float = None,
+           phase: float = None, phase0: float = None) -> QWaveform:
     """
     Return a QWaveform object of square wave.
 
-    :param t0: start time
     :param t: pulse duration
     :param a: pulse amplitude
-    :param omega: pulse frequency
-    :param phi: pulse phase
+    :param t0: start time
+    :param freq: pulse frequency shift (will not accumulate during the entire pulse execution)
+    :param phase: pulse phase shift (will accumulate during the entire pulse execution)
+    :param phase0: pulse phase shift (will not accumulate during the entire pulse execution)
     :return: returned square QWaveform
     """
 
     def func(_t, args):
+        """ The constant function """
         return args
 
-    wave = QWaveform(f=func, t0=t0, t=t, args=a, omega=omega, phi=phi)
+    wave = QWaveform(f=func, t0=t0, t=t, args=a, freq=freq, phase=phase, phase0=phase0)
     wave.name = "square"
     return wave
 
 
-def sin(t0: Union[int, float], t: Union[int, float], a: float, b: float, c: float,
-        omega: float = None, phi: float = None) -> QWaveform:
+def delay(t: Union[int, float], t0: Union[int, float] = 0., freq: float = None,
+          phase: float = None, phase0: float = None) -> QWaveform:
+    """
+    Return a QWaveform object of delay.
+
+    :param t: pulse duration
+    :param t0: start time
+    :param freq: pulse frequency shift (will not accumulate during the entire pulse execution)
+    :param phase: pulse phase shift (will accumulate during the entire pulse execution)
+    :param phase0: pulse phase shift (will not accumulate during the entire pulse execution)
+    :return: returned square QWaveform
+    """
+
+    def func(_t, _):
+        """ The constant function """
+        return 0.
+
+    wave = QWaveform(f=func, t0=t0, t=t, args=None, freq=freq, phase=phase, phase0=phase0)
+    wave.name = "delay"
+    return wave
+
+
+def virtualZ(phase: float = None, t0: Union[int, float] = 0.) -> QWaveform:
+    """
+    Return a QWaveform object of phase shift (implement Virtual-Z gate).
+
+    :param phase: pulse phase shift (will accumulate during the entire pulse execution)
+    :param t0: start time
+    :return: returned square QWaveform
+    """
+
+    def func(_t, _):
+        """ The constant function """
+        return 0.
+
+    wave = QWaveform(f=func, t0=t0, t=0.0, args=None, freq=0.0, phase=phase, phase0=0.0,
+                     flag=QWAVEFORM_FLAG_PHASE_SHIFT)
+    wave.name = "virtualZ"
+    return wave
+
+
+def sin(t: Union[int, float], a: float, b: float, c: float, t0: Union[int, float] = 0.,
+        freq: float = None, phase: float = None, phase0: float = None) -> QWaveform:
     """
     Return a QWaveform object of sin wave.
-    x(t) = a * sin( b * t + c)
+    x(t) = a * sin(b * t + c)
 
-    :param t0: start time
     :param t: pulse duration
     :param a: sin wave amplitude
-    :param b: 2pi / (sin wave period)
+    :param b: 2 * pi / (sin wave period)
     :param c: sin wave phase
-    :param omega: pulse frequency
-    :param phi: pulse phase
+    :param t0: start time
+    :param freq: pulse frequency shift (will not accumulate during the entire pulse execution)
+    :param phase: pulse phase shift (will accumulate during the entire pulse execution)
+    :param phase0: pulse phase shift (will not accumulate during the entire pulse execution)
     :return: returned sin QWaveform
     """
 
     def func(_t, args):
-        return a * math.sin(b * _t + c)
+        """ The sin function """
+        _a, _b, _c = args
+        return _a * math.sin(_b * _t + _c)
 
-    wave = QWaveform(f=func, t0=t0, t=t, args=a, omega=omega, phi=phi)
-    wave.name = "square"
+    wave = QWaveform(f=func, t0=t0, t=t, args=(a, b, c), freq=freq, phase=phase, phase0=phase0)
+    wave.name = "sin"
     return wave
 
 
-def sequence(t0: Union[int, float], seq: List[float], omega: float = None, phi: float = None) -> QWaveform:
+def sequence(seq: List[Union[float, complex]], t0: Union[int, float] = 0., freq: float = None, phase: float = None,
+             phase0: float = None) -> QWaveform:
     """
     Return a QWaveform object of pulse sequence.
 
-    :param t0: pulse start time
     :param seq: pulse sequence
-    :param omega: pulse frequency
-    :param phi: pulse phase
+    :param t0: pulse start time
+    :param freq: pulse frequency shift (will not accumulate during the entire pulse execution)
+    :param phase: pulse phase shift (will accumulate during the entire pulse execution)
+    :param phase0: pulse phase shift (will not accumulate during the entire pulse execution)
     :return: returned QWaveform object
     """
-    wave = QWaveform(t0=t0, seq=seq, omega=omega, phi=phi)
+    wave = QWaveform(t0=t0, seq=seq, freq=freq, phase=phase, phase0=phase0)
     wave.name = "manual_sequence"
     return wave
 
 
-def quasiSquareErf(t0: Union[int, float], t: Union[int, float], a: float, l: float, r: float, sk: float = None,
-                   omega: float = None, phi: float = None) -> QWaveform:
+def quasiSquareErf(t: Union[int, float], a: float, l: float, r: float, sk: float = None, t0: Union[int, float] = 0.,
+                   freq: float = None, phase: float = None, phase0: float = None) -> QWaveform:
     """
     Return the sample pulse with a quasi-square envelope.
 
-    :param t0: pulse start time
     :param t: pulse duration
     :param a: pulse amplitude
     :param l: quasiSquare wave function parameter
     :param r: quasiSquare wave function parameter
     :param sk: quasiSquare wave function parameter
-    :param omega: pulse frequency
-    :param phi: pulse phase
+    :param t0: pulse start time
+    :param freq: pulse frequency shift shift (will not accumulate during the entire pulse execution)
+    :param phase: pulse phase shift (will accumulate during the entire pulse execution)
+    :param phase0: pulse phase shift (will not accumulate during the entire pulse execution)
     :return: returned quasi square QWaveform object
     """
 
     def func(_t, args):
+        """ The quasi square error function """
         _a, _l, _r, _sk = args
         if _sk is None:
             _sk = _a * 0.3
@@ -1561,33 +1904,71 @@ def quasiSquareErf(t0: Union[int, float], t: Union[int, float], a: float, l: flo
         pulse = pulse * (1 - erf(sqrt(pi) * _sk / _a * (_t - t2i)))
         return pulse
 
-    wave = QWaveform(f=func, t0=t0, t=t, args=(a, l, r, sk), omega=omega, phi=phi)
+    wave = QWaveform(f=func, t0=t0, t=t, args=(a, l, r, sk), freq=freq, phase=phase, phase0=phase0)
     wave.name = "quasi_square_erf"
     return wave
 
 
-def dragY1(t0: Union[int, float], t: Union[int, float], a: float, tau: float, sigma: float,
-           omega: float = None, phi: float = None) -> QWaveform:
+def dragY1(t: Union[int, float], a: float, tau: float, sigma: float, t0: Union[int, float] = 0.,
+           freq: float = None, phase: float = None, phase0: float = None) -> QWaveform:
     """
     Return a QWaveform object of DRAG wave.
 
-    :param t0: start time
     :param t: pulse duration
     :param a: pulse amplitude
     :param tau: pulse center position
     :param sigma: pulse standard deviation
-    :param omega: pulse frequency
-    :param phi: pulse phase
+    :param t0: start time
+    :param freq: pulse frequency shift (will not accumulate during the entire pulse execution)
+    :param phase: pulse phase shift (will accumulate during the entire pulse execution)
+    :param phase0: pulse phase shift (will not accumulate during the entire pulse execution)
     :return: returned QWaveform object with DRAG
     """
 
     def func(_t, args):
+        """ The DRAG function """
         _a, _tau, _sigma = args
         if sigma == 0:
             return 0
         pulse = - _a * (_t - _tau) / (_sigma ** 2) * exp(- ((_t - _tau) / _sigma) ** 2 / 2)
         return pulse
 
-    wave = QWaveform(f=func, t0=t0, t=t, args=(a, tau, sigma), omega=omega, phi=phi)
+    wave = QWaveform(f=func, t0=t0, t=t, args=(a, tau, sigma), freq=freq, phase=phase, phase0=phase0)
     wave.name = "drag_y1"
+    return wave
+
+
+def mix(xWave: Optional[QWaveform], yWave: Optional[QWaveform], t0: Union[int, float] = 0.):
+    """
+    Return the mix of two QWaveform instances.
+
+    :param xWave: the first QWaveform instances
+    :param yWave: the second QWaveform instances
+    :param t0:
+    :return: returned mixed QWaveform
+    """
+
+    def func(_t, args):
+        """ The mix function """
+        _xWave, _yWave = args
+        _xVal = 0. if _xWave is None else _xWave(_t)
+        _yVal = 0. if _yWave is None else _yWave(_t)
+        # Calculate amplitude
+        amp = math.sqrt(_xVal ** 2 + _yVal ** 2)
+        # Calculate phase
+        if abs(_xVal) > 1e-10 and abs(_yVal) > 1e-10:
+            varPhase = atan(_yVal / _xVal)
+        elif abs(_xVal) < 1e-10 < abs(_yVal):
+            varPhase = sign(_yVal) * pi / 2
+        else:
+            varPhase = 0.
+        return amp, varPhase
+
+    xDuration = 0. if xWave is None else xWave.t0 + xWave.t
+    yDuration = 0. if yWave is None else yWave.t0 + yWave.t
+    tDuration = max(xDuration, yDuration)
+    wave = QWaveform(f=func, t0=t0, t=tDuration, args=(xWave, yWave), flag=QWAVEFORM_FLAG_MIX_WAVE)
+    xName = "" if xWave is None else xWave.name
+    yName = "" if yWave is None else yWave.name
+    wave.name = "mix-{}-{}".format(xName, yName)
     return wave

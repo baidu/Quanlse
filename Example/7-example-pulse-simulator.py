@@ -33,6 +33,7 @@ from Quanlse import Define
 from Quanlse.remoteSimulator import remoteSimulatorRunHamiltonian as runHamiltonian
 
 
+
 # Your token:
 # Please visit http://quantum-hub.baidu.com
 Define.hubToken = ''
@@ -78,9 +79,9 @@ jobList = QJobList(subSysNum=qubits, sysLevel=level, dt=dt, title='Rabi')
 
 # Append job to jobList.
 for amp in amps:
-    wave = gaussian(0, tg, a=amp, tau=tg / 2, sigma=tg / 8)
+    wave = gaussian(tg, a=amp, tau=tg / 2, sigma=tg / 8)
     job = QJob(subSysNum=qubits, sysLevel=level, dt=dt)
-    job.addWave(driveX(level), 0, waves=wave)
+    job.appendWave(driveX, 0, waves=wave)
     job = model.getSimJob(job)
     jobList.addJob(jobs=job)
 

@@ -2,19 +2,19 @@ English | [简体中文](README_CN.md)
 
 ![](https://release-data.cdn.bcebos.com/Quanlse_title_en.png)
 
-[![](https://img.shields.io/badge/license-Apache%202.0-green)](./LICENSE) [![](https://img.shields.io/badge/build-passing-green)]() ![](https://img.shields.io/badge/Python-3.7--3.8-blue) ![](https://img.shields.io/badge/release-v2.0.0-blue)
+[![](https://img.shields.io/badge/license-Apache%202.0-green)](./LICENSE) [![](https://img.shields.io/badge/build-passing-green)]() ![](https://img.shields.io/badge/Python-3.7--3.8-blue) ![](https://img.shields.io/badge/release-v2.1.0-blue)
 
 [Quanlse (量脉)](https://quanlse.baidu.com) is a cloud-based platform for quantum control developed by the [Institute for Quantum Computing](https://quantum.baidu.com) at Baidu Research. Quanlse aims to bridge the gap between quantum software and hardware. It provides efficient and professional quantum control solutions via an open-source SDK strengthened by Quanlse Cloud Service.
 
-Quanlse supports the pulse generation and scheduling of arbitrary single-qubit and two-qubit gates. With the help of toolkits in Quanlse, one can use Quanlse for modeling real superconducting quantum chips, simulating noisy quantum devices and dynamical evolution, visualizing error analysis, and characterizing and mitigating error. Single/two-qubit gates and general Mølmer-Sørensen gate realization on the trapped ion platform and relevant applications on the NMR platform are also available in Quanlse. Furthermore, Quanlse supports pulse-level control of quantum algorithms and advanced R&D (Research & Development) in the field of quantum control.
+Quanlse supports the pulse generation and scheduling of arbitrary single-qubit and two-qubit gates. With the help of toolkits in Quanlse, one can use Quanlse for modeling real superconducting quantum chips, simulating noisy quantum devices and dynamical evolution, visualizing error analysis, and characterizing and mitigating error. Single/two-qubit gates and general Mølmer-Sørensen gate realization on the trapped ion platform and relevant applications on the NMR platform are also available in Quanlse. For the practicality in experiments, Quanlse provides the toolkit for qubit and readout cavity calibration. Furthermore, Quanlse supports pulse-level control of quantum algorithms and advanced R&D (Research & Development) in the field of quantum control.
 
-## Quanlse v2.0
+## Quanlse v2.1
 
-**Attention: We have added some exciting features and further improved the original ones in Quanlse v2.0. An upgrade to Quanlse v2.0 is strongly recommended!**
+**Attention: We have added some exciting features and further improved the original ones in Quanlse v2.1. We strongly recommend users to upgrade to Quanlse v2.1!**
 
 ![](https://release-data.bd.bcebos.com/Quanlse_architecture_en.png)
 
-We have been trying to enrich and improve Quanlse's architecture. In this update, we refactored the fundamental modules in Quanlse to reduce the complexity of codes and optimized pulse generation and schedule. For the superconducting platform, our new multi-qubit noisy simulator allows users to simulate quantum operations on noisy quantum devices consisting of multiple transmon qubits, and we also provide new modules for error characterization and mitigation. For the trapped ion platform, we provide a way to implement the general Mølmer-Sørensen gate and use it to produce a Greenberger–Horne–Zeilinger (GHZ) state.
+We have been trying to enrich and improve Quanlse's architecture. In this update, we have improved the fundamental modules in Quanlse in order to provide better user experience and support the modeling and simulation in lab frame. In superconducting platform, we have added the toolkit for qubit and readout calibration, and provided corresponding tutorials. we have also updated the noisy simulator, and added the two-qubit simulator, and two-qubit simulator with coupler architecture and some practical analysis tools.
 
 ## Install
 
@@ -66,7 +66,7 @@ To get started with Quanlse, users are recommended to go through the [Overview](
 Quanlse provides detailed and comprehensive tutorials from fundamental to advanced topics. Each tutorial currently supports reading on our [website](https://quanlse.baidu.com). For interested developers, we recommend them to download [Jupyter Notebooks](https://jupyter.org/) and play with it. The tutorial list is as follows:
 
 + **QuanlseSuperconduct**
-  + [Construct Hamiltonian](https://quanlse.baidu.com/#/doc/tutorial-construct-ham)
+  + [Construct Hamiltonian](https://quanlse.baidu.com/#/doc/tutorial-construct-hamiltonian)
   + **Single-Qubit Control**
     + [Single-Qubit Gate](https://quanlse.baidu.com/#/doc/tutorial-single-qubit)
     + [Optimize Pulses Using GRAPE](https://quanlse.baidu.com/#/doc/tutorial-GRAPE)
@@ -84,6 +84,11 @@ Quanlse provides detailed and comprehensive tutorials from fundamental to advanc
   + **Noisy Simulator**
     + [Single-Qubit Noisy Simulator](https://quanlse.baidu.com/#/doc/tutorial-single-qubit-noisy-simulator)
     + [Multi-Qubit Noisy Simulator](https://quanlse.baidu.com/#/doc/tutorial-multi-qubit-noisy-simulator)
+    + [Two-Qubit Simulator with Coupler Architecture](https://quanlse.baidu.com/#/doc/tutorial-two-qubit-simulator-with-coupler-architecture)
+  + **Qubit and Pulse Calibration**
+    + [Simulation of Readout Cavity Calibration](https://quanlse.baidu.com/#/doc/tutorial-readout-cavity-calibration)
+    + [Single-Qubit Calibration](https://quanlse.baidu.com/#/doc/tutorial-single-qubit-calibration)
+    + [Controlled-Z Pulse Calibration](https://quanlse.baidu.com/#/doc/tutorial-calibration-cz)
   + [Pulse-Based Variational Quantum Eigensolver Algorithm](https://quanlse.baidu.com/#/doc/tutorial-pbvqe)
 + **QuanlseTrappedIon**
   + [Single/Two-Qubit Gate](https://quanlse.baidu.com/#/doc/tutorial-ion-trap-single-and-two-qubit-gate)
@@ -102,7 +107,7 @@ Users are encouraged to contact us through [Github Issues](https://github.com/ba
 
 - **Step 1:** Go to [Quick Start](https://quanlse.baidu.com/#/doc/quickstart) to learn how to access Quanlse Cloud Service.
 - **Step 2:** Get familiarized with Quanlse by going through the examples of [Single-Qubit Control](https://quanlse.baidu.com/#/doc/tutorial-single-qubit) and [Two-Qubit Control](https://quanlse.baidu.com/#/doc/tutorial-iswap). 
-- **Step 3:** Explore more possibilities with Quanlse by studying more advanced applications, such as [Quanlse Scheduler](https://quanlse.baidu.com/#/doc/tutorial-scheduler), [Error Processing](https://quanlse.baidu.com/#/doc/tutorial-error-analysis), [Noisy Simulator](https://quanlse.baidu.com/#/doc/tutorial-multi-qubit-noisy-simulator) and [Pulse-based Variational Quantum Eigensolver Algorithm](https://quanlse.baidu.com/#/doc/tutorial-pbvqe).
+- **Step 3:** Explore more possibilities with Quanlse by studying more advanced applications, such as [Quanlse Scheduler](https://quanlse.baidu.com/#/doc/tutorial-scheduler), [Error Processing](https://quanlse.baidu.com/#/doc/tutorial-error-analysis), [Noisy Simulator](https://quanlse.baidu.com/#/doc/tutorial-multi-qubit-noisy-simulator), [Two-Qubit Simulator with Coupler Architecture](https://quanlse.baidu.com/#/doc/tutorial-two-qubit-simulator-with-coupler-architecture), [Qubit and Pulse Calibration](https://quanlse.baidu.com/#/doc/tutorial-readout-cavity-calibration) and [Pulse-based Variational Quantum Eigensolver Algorithm](https://quanlse.baidu.com/#/doc/tutorial-pbvqe).
 
 **Q: What should I do when I run out of my credit points?**  
 
@@ -124,7 +129,7 @@ Quanlse uses [Apache-2.0 license](LICENSE).
 
 [1] [Quantum Computing - Wikipedia](https://en.wikipedia.org/wiki/Quantum_computing).
 
-[2] [Nielsen, Michael A., and Isaac L. Chuang. *Quantum Computation and Quantum Information: 10th Anniversary Edition*. Cambridge: Cambridge UP, 2010. Print.](http://mmrc.amss.cas.cn/tlb/201702/W020170224608149940643.pdf)
+[2] [Nielsen, Michael A., and Isaac L. Chuang. *Quantum Computation and Quantum Information: 10th Anniversary Edition*. Cambridge: Cambridge UP, 2010. Print.](https://doi.org/10.1017/CBO9780511976667)
 
 [3] [Werschnik, J., and E. K. U. Gross. "Quantum optimal control theory." *Journal of Physics B: Atomic, Molecular and Optical Physics* 40.18 (2007): R175.](https://doi.org/10.1088/0953-4075/40/18/R01)
 

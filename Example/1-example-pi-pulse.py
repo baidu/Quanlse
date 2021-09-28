@@ -52,7 +52,7 @@ ham = QHam(subSysNum=qubits, sysLevel=level, dt=dt)
 piAmp = pi / (tg / 8) / sqrt(2 * pi)
 
 # Add gaussian waveform to control Hamiltonian.
-ham.addWave(driveX(level), 0, gaussian(0, tg, piAmp, tg / 2, tg / 8))
+ham.appendWave(driveX, 0, gaussian(tg, piAmp, tg / 2, tg / 8))
 
 # ------------------------------------------
 # Run the simulation and show the results.
