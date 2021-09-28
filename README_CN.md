@@ -83,7 +83,7 @@ python 1-example-pi-pulse.py
   + **含噪模拟器**
     + [单量子比特含噪模拟器](https://quanlse.baidu.com/#/doc/tutorial-single-qubit-noisy-simulator)
     + [多量子比特含噪模拟器](https://quanlse.baidu.com/#/doc/tutorial-multi-qubit-noisy-simulator)
-    + [含耦合器的两量子比特模拟器](https://quanlse.baidu.com/#/doc/tutorial-two-qubit-simulator-with-coupler)
+    + [含耦合器的两量子比特模拟器](https://quanlse.baidu.com/#/doc/tutorial-two-qubit-simulator-with-coupler-architecture)
   + **量子比特标定与脉冲校准**
     + [读取腔标定](https://quanlse.baidu.com/#/doc/tutorial-readout-cavity-calibration)
     + [单量子比特标定](https://quanlse.baidu.com/#/doc/tutorial-single-qubit-calibration)
