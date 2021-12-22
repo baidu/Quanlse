@@ -30,11 +30,11 @@ from Quanlse.QOperator import number, duff
 from Quanlse.QHamiltonian import QHamiltonian
 from Quanlse.QOperation import RotationGate, CircuitLine
 from Quanlse.QPlatform.Error import ArgumentError
-from Quanlse.Scheduler.Superconduct import SchedulerSuperconduct
+from Quanlse.Superconduct.SchedulerSupport import SchedulerSuperconduct
 from Quanlse.Utils.Functions import project, tensor, expect, fromMatrixToAngles
 from Quanlse.Utils.Plot import plotPulse
 from Quanlse.Utils.Clifford import randomClifford
-from Quanlse.Scheduler.Superconduct.GeneratorRBPulse import SingleQubitCliffordPulseGenerator
+from Quanlse.Superconduct.SchedulerSupport.GeneratorRBPulse import SingleQubitCliffordPulseGenerator
 
 
 def setupBasicHamiltonian(n: int = None) -> QHamiltonian:
@@ -103,7 +103,7 @@ def fromCircuitToHamiltonian(circuit: List[CircuitLine] = None, useCliffordPulse
             raise ArgumentError('Error in fromCircuitToHamiltonian(): unrecognized gate type!')
 
     # Run the scheduler
-    scheduler.schedule()
+    scheduler.ham.job = scheduler.schedule()
     # Build the cache for the Hamiltonian
     scheduler.ham.buildCache()
     # Return the optimized Hamiltonian corresponding to the quantum circuit

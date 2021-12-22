@@ -20,7 +20,7 @@ Pipeline class for Quanlse Scheduler.
 """
 
 import copy
-from typing import List, Union, Dict, Any, Callable
+from typing import List, Union, Dict, Any, Callable, Optional
 
 from Quanlse.QWaveform import QJob
 from Quanlse.QPlatform.Error import ArgumentError
@@ -43,13 +43,13 @@ class SchedulerProcess:
         self._processFunc = processFunc
         self._conf = {}  # type: Dict[str, Any]
 
-    def __call__(self, job: QJob, scheduler: 'Scheduler') -> QJob:
+    def __call__(self, scheduler: 'Scheduler') -> QJob:
         """
         Call the scheduling function.
         """
         if self._processFunc is None:
             raise ArgumentError("Scheduling function is not set.")
-        return self._processFunc(job=job, scheduler=scheduler)
+        return self._processFunc(scheduler=scheduler)
 
 
 class SchedulerPipeline:
@@ -65,18 +65,32 @@ class SchedulerPipeline:
         """
         self._title = title
         self._pipeline = []  # type: List[SchedulerProcess]
+        self._scheduler = None  # type: Optional['Scheduler']
 
-    def __call__(self, job: QJob, scheduler: 'Scheduler') -> QJob:
+    def __call__(self):
         """
         Call the instance and run the pipeline in order,
         and output a QJob instance.
         """
         for idx, process in enumerate(self._pipeline):
             if isinstance(process, Callable):
-                job = process(job, scheduler)
+                process(self.scheduler)
             else:
                 raise ArgumentError("Scheduler process is not callable.")
-        return job
+
+    @property
+    def scheduler(self):
+        """
+        Return the Scheduler reference.
+        """
+        return self._scheduler
+
+    @scheduler.setter
+    def scheduler(self, scheduler: 'Scheduler'):
+        """
+        Set the scheduler instance reference.
+        """
+        self._scheduler = scheduler
 
     @property
     def pipeline(self) -> List[SchedulerProcess]:
@@ -120,146 +134,113 @@ class SchedulerPipeline:
             return self
 
 
-def findMaxT(layer: list, scheduler: 'Scheduler') -> list:
+def findMaxT(layer: list) -> list:
     """
     Find maximum time for each layer
 
     :param layer: circuit list
-    :param scheduler: a Scheduler object
     :return: a list containing the maximum time in each layer
     """
     maxDepth = [0 for _ in range(len(layer))]
     for layIdx, lay in enumerate(layer):
-        for gateIdx in range(len(lay)):
-            if lay[gateIdx] is not None:
-                if scheduler.savePulse:
-                    someJob = scheduler.findGatePulsePair(lay[gateIdx])
-                else:
-                    job = scheduler.pulseGenerator(lay[gateIdx], scheduler)
-                    someJob = GatePulsePair(lay[gateIdx], job)
-                if someJob.t > maxDepth[layIdx]:
-                    maxDepth[layIdx] = someJob.t
+        for pair in lay:
+            if pair is not None and pair.t > maxDepth[layIdx]:
+                maxDepth[layIdx] = pair.t
     return maxDepth
 
 
-def toLayer(layer: list, scheduler: 'Scheduler') -> None:
+def toLayer(layer: List[List[Optional[GatePulsePair]]], scheduler: 'Scheduler', reversedOrder: bool = False) -> None:
     """
-    Turn gates in a Scheduler object into layers
+    Turn GatePulsePair instances in a Scheduler object into layers
 
-    :param layer: empty list to store circuit
+    :param layer: empty list to store GatePulsePair
     :param scheduler: a Scheduler object
+    :param reversedOrder: transform by reversed order
     :return: None
     """
-    for gate in scheduler.circuit:
-        if len(gate.qRegIndexList) == 1:
-            layer[gate.qRegIndexList[0]].append(gate)
-        elif len(gate.qRegIndexList) >= 2:
-            fillUp(layer, gate.qRegIndexList)
-            for qubit in gate.qRegIndexList:
-                layer[qubit].append(gate)
+    if reversedOrder:
+        for pair in reversed(scheduler.gatePulsePairs):
+            if len(pair.qubits) == 1:
+                layer[pair.qubits[0]].insert(0, pair)
+            elif len(pair.qubits) >= 2:
+                fillUp(layer, pair.qubits, reversedOrder)
+                for qubit in pair.qubits:
+                    layer[qubit].insert(0, pair)
+    else:
+        for pair in scheduler.gatePulsePairs:
+            if isinstance(pair.qubits, List):
+                if len(pair.qubits) == 1:
+                    layer[pair.qubits[0]].append(pair)
+                elif len(pair.qubits) >= 2:
+                    fillUp(layer, pair.qubits)
+                    for qubit in pair.qubits:
+                        layer[qubit].append(pair)
+            elif isinstance(pair.qubits, int):
+                layer[pair.qubits].append(pair)
 
 
-def fillUp(layer: list, qubits: list = None) -> None:
+def fillUp(layer: List[List[Optional[GatePulsePair]]], qubits: List = None, reversedOrder: bool = False) -> None:
     """
     Fill up till each list is of equal size
 
-    :param layer: circuit list
+    :param layer: GatePulsePair list
     :param qubits: qubit indexes to fill
+    :param reversedOrder: transform by reversed order
     :return: None
     """
     if qubits is None:
         qubits = range(len(layer))
-
     lens = [len(layer[qubit]) for qubit in qubits]
+
     for qubit in qubits:
         if max(lens) - len(layer[qubit]) != 0:
             N = [None] * (max(lens) - len(layer[qubit]))
-            layer[qubit] = layer[qubit] + N
+            if reversedOrder:
+                layer[qubit] = N + layer[qubit]
+            else:
+                layer[qubit] = layer[qubit] + N
 
 
-def addToJob(layer: list, scheduler: 'Scheduler', maxT: list, job: QJob) -> None:
+def addToJob(layer: List[List[Optional[GatePulsePair]]], scheduler: 'Scheduler', maxT: list) -> None:
     """
     Add the circuit in the given layer to scheduler.job
 
-    :param layer: circuit list
+    :param layer: GatePulsePair list
     :param scheduler: original Scheduler object
     :param maxT: a list generated by findMaxt()
-    :param job: the QJob object to add the pulses to
     """
 
     t0 = 0
     padding = scheduler.padding
 
-    # for each layer
-    for i in range(len(layer)):
-        temp = []
-
-        # for each qubit
-        for j in layer[i]:
-
-            # dont add the same gate multiple times
-            flag = False
-            for tp in temp:
-                if tp == j and j is not None:
-                    flag = True
-            if j is not None and flag is False:
-                if scheduler.savePulse:
-                    obj = scheduler.findGatePulsePair(j)
-                else:
-                    jobObj = scheduler.pulseGenerator(j, scheduler)
-                    obj = GatePulsePair(j, jobObj)
+    # For each layer
+    for _layerIdx in range(len(layer)):
+        # For each qubit
+        for _pair in layer[_layerIdx]:
+            if _pair is not None:
                 if t0 == 0:
-                    job.appendJob(obj.pulses, t0)
+                    _pair.t0 = t0
                 else:
                     if (t0 - padding * 2) < 0:
                         raise ValueError("Error: buffer time exceeds pulse length.")
-                    job.appendJob(obj.pulses, t0 - padding * (i + 1))
-
-            temp.append(j)
-
+                    _pair.t0 = t0 - padding * (_layerIdx + 1)
         if t0 == 0:
-            t0 += maxT[i] - padding
+            t0 += maxT[_layerIdx] - padding
         else:
-            t0 += maxT[i] - padding * 2
+            t0 += maxT[_layerIdx] - padding * 2
 
 
-def reverseToLayer(layer: list, scheduler: 'Scheduler'):
-    """
-    Turn gates in Scheduler into layers
-    """
-    for gate in reversed(scheduler.circuit):
-        if len(gate.qRegIndexList) == 1:
-            layer[gate.qRegIndexList[0]].insert(0, gate)
-        elif len(gate.qRegIndexList) >= 2:
-            reverseFillUp(layer, gate.qRegIndexList)
-            for qubit in gate.qRegIndexList:
-                layer[qubit].insert(0, gate)
-
-
-def reverseFillUp(layer: list, qubits=None):
-    """
-    Fill up till the list is of equal size
-    """
-
-    if qubits is None:
-        qubits = range(len(layer))
-
-    lens = [len(layer[qubit]) for qubit in qubits]
-    for qubit in qubits:
-        if max(lens) - len(layer[qubit]) != 0:
-            N = [None] * (max(lens) - len(layer[qubit]))
-            layer[qubit] = N + layer[qubit]
-
-
-def leftAlignSingleGates(layer: list):
+def leftAlignSingleGates(layer: List[List[Optional[GatePulsePair]]]):
     """
     Left align all the single-qubit gates
+
+    :param layer: GatePulsePair list
     """
 
     for qubit in layer:
         index = len(qubit) - 1
         while index >= 0:
-            if qubit[index] is not None and len(qubit[index].qRegIndexList) == 1 \
+            if qubit[index] is not None and len(qubit[index].qubits) == 1 \
                     and index - 1 >= 0 and qubit[index - 1] is None:
                 qubit[index - 1], qubit[index] = qubit[index], qubit[index - 1]
                 if index + 2 < len(qubit):
@@ -268,7 +249,7 @@ def leftAlignSingleGates(layer: list):
     return layer
 
 
-def delayFirstGate(layer, gateNumberBeforeMulti):
+def delayFirstGate(layer: List[List[Optional[GatePulsePair]]], gateNumberBeforeMulti):
     """
     Delay the first gates
     """

@@ -20,13 +20,12 @@ Utils functions
 """
 import copy
 from math import atan2, pi
-from typing import List, Union, Iterable, Optional, Callable
+from typing import List, Union, Tuple, Callable
 import itertools
 from itertools import product
 
-import numpy
 from numpy import all, array, ndarray, zeros, kron, trace, dot, eye, angle, real, exp, \
-    cos, arange, fft, argmax, abs, expand_dims, block, identity, meshgrid, sqrt, arctan, conj, prod
+    cos, fft, argmax, abs, block, identity, meshgrid, sqrt,  conj, prod
 
 from scipy.optimize import fmin
 from scipy import linalg
@@ -86,19 +85,19 @@ def combineOperatorAndOnSubSys(subSysNum: int, operators: Union[QOperator, List[
     if isinstance(operators, list) and isinstance(onSubSys, list):
         if len(operators) != len(onSubSys):
             raise ArgumentError(f"The size of operator ({len(operators)}) != that "
-                                      f"of onSubSys ({len(onSubSys)})!")
+                                f"of onSubSys ({len(onSubSys)})!")
 
     # Verify the range and set the onSubSys
     if isinstance(onSubSys, int):
         if onSubSys >= subSysNum:
             raise ArgumentError(f"onSubSys ({onSubSys}) is larger than the "
-                                      f"subSysNum {subSysNum}.")
+                                f"subSysNum {subSysNum}.")
         operators.onSubSys = onSubSys
         operatorForSave = operators
     elif isinstance(onSubSys, list):
         if max(onSubSys) >= subSysNum:
             raise ArgumentError(f"onSubSys ({onSubSys}) is larger than the "
-                                      f"subSysNum {subSysNum}.")
+                                f"subSysNum {subSysNum}.")
         # Sort the operators according to on onSubSys
         sortedIndex = list(array(onSubSys).argsort())
         sortedOperators = [operators[i] for i in sortedIndex]
@@ -135,12 +134,14 @@ def formatOperatorInput(operators: Union[QOperator, Callable, List[QOperator], L
         if isinstance(operators, QOperator):
             # Input operator is an QOperator instance
             _operators = copy.deepcopy(operators)
-        else:
+        elif isinstance(operators, Callable):
             # Input operator is callable
             if isinstance(sysLevel, list):
                 _operators = operators(sysLevel[onSubSys])
             else:
                 _operators = operators(sysLevel)
+        else:
+            raise ArgumentError(f"Wrong type of input operator ({type(operators)})!")
     return _operators
 
 
@@ -234,7 +235,7 @@ def tensor(*args) -> ndarray:
     """
     Return the tensor product of all matrices in the list.
 
-    :param matrixList: the list of matrices to take the tensor product
+    :param args: the list of matrices to take the tensor product
     :return: tensor product of matrices in the list
     """
     # We firstly need to check if all the matrix in the list a numpy.ndarray
@@ -317,7 +318,7 @@ def expect(matrix: ndarray, state: ndarray) -> float:
     return expectValue
 
 
-def computationalBasisList(qubitNum: int, sysLevel: int) -> List[str]:
+def computationalBasisList(qubitNum: int, sysLevel: Union[int, List[int]]) -> List[str]:
     """
     Return a list of strings labeling eigenstates.
     For example, ``computationalBasisList(2, 3)`` will return:
@@ -327,16 +328,50 @@ def computationalBasisList(qubitNum: int, sysLevel: int) -> List[str]:
     :param sysLevel: the energy level of the qubits in the system
     :return: the list of strings labeling eigenstates
     """
-    if not isinstance(sysLevel, int):
-        raise ArgumentError('The system level can only be an integer.')
-    itemCount = sysLevel ** qubitNum
-    strList = []
-    for index in range(itemCount):
-        bStr = ''
-        for qu in range(qubitNum):
-            bStr = f"{int(index / sysLevel ** qu) % sysLevel}{bStr}"
-        strList.append(bStr)
-    return strList
+    if isinstance(sysLevel, int):
+        itemCount = sysLevel ** qubitNum
+        strList = []
+        for index in range(itemCount):
+            bStr = ''
+            for qIdx in range(qubitNum):
+                bStr = f"{int(index / sysLevel ** qIdx) % sysLevel}{bStr}"
+            strList.append(bStr)
+        return strList
+    elif isinstance(sysLevel, list):
+        def _getIndex(_basis: List[int]) -> int:
+            """ Get the index of a specific basis """
+            _digitAccumulate = 1
+            _index = 0
+            for _rIdx, _digit in enumerate(reversed(_basis)):
+                _index += _digitAccumulate * _digit
+                _digitAccumulate *= sysLevel[qubitNum - _rIdx - 1]
+            return _index
+        # Start generating the str list
+        if qubitNum != len(sysLevel):
+            raise ArgumentError("The length of `sysLevel` does not equal to qubitNum!")
+        totalElems = 1
+        for _level in sysLevel:
+            totalElems *= _level
+        strList = ['' for _ in range(totalElems)]
+        currentBasis = [0 for _ in range(qubitNum)]
+        for _qIdx in range(totalElems):
+            # Add string list
+            indexInt = _getIndex(currentBasis)
+            indexStr = ''.join([str(_id) for _id in currentBasis])
+            strList[indexInt] = indexStr
+            # Next basis
+            currentBasis[-1] += 1
+            for _carry in reversed(range(qubitNum)):
+                if currentBasis[_carry] == sysLevel[_carry]:
+                    # Carry or return the list
+                    if _carry == 0:
+                        # Return the list
+                        return strList
+                    else:
+                        # Carry
+                        currentBasis[_carry] = 0
+                        currentBasis[_carry - 1] += 1
+        return strList
 
 
 def generateBasisIndexList(basisStrList: List[str], sysLevel: int) -> List[int]:
@@ -376,6 +411,50 @@ def generateBasisIndexList(basisStrList: List[str], sysLevel: int) -> List[int]:
         basisIntList.append(translateStrToInt(strNum))
 
     return basisIntList
+
+
+def subspaceVec(fullVec: Union[ndarray, List], subSysNum: int, sysLevel: Union[int, List[int]],
+                subSysIndex: Union[int, List[int]]) -> Tuple[Union[ndarray, List], List[str]]:
+    """
+    Extract a population vector in a subspace.
+
+    :param fullVec: the full vector
+    :param subSysNum: the number of subsystems o the original full vector
+    :param sysLevel: the level definition of the subsystems
+    :param subSysIndex: the indexes of subsystems to be extracted
+    """
+    if isinstance(subSysIndex, int):
+        subSysIndex = [subSysIndex]
+    # Get the basis string list
+    fullBasis = computationalBasisList(subSysNum, sysLevel)
+    if isinstance(sysLevel, int):
+        subSysLevel = sysLevel
+        subTotalItems = sysLevel ** len(subSysIndex)
+    elif isinstance(sysLevel, list):
+        subSysLevel = [sysLevel[_idx] for _idx in subSysIndex]
+        subTotalItems = 1
+        for _level in subSysLevel:
+            subTotalItems *= _level
+    else:
+        raise ArgumentError("You must input a int or a list of int for sysLevel!")
+    subBasis = computationalBasisList(len(subSysIndex), subSysLevel)
+
+    def _extractSubIdxStr(_fullStr):
+        """ Extract the sub index str """
+        _subIdxStr = ''
+        for _idx in subSysIndex:
+            _subIdxStr += _fullStr[_idx]
+        return _subIdxStr
+
+    subVec = [0. for _id in range(subTotalItems)]
+    if isinstance(fullVec, ndarray):
+        subVec = array(subVec, dtype=float)
+    for bIdx, bStr in enumerate(fullBasis):
+        subIdxStr = _extractSubIdxStr(bStr)
+        intIndexInSubSys = subBasis.index(subIdxStr)
+        subVec[intIndexInSubSys] += fullVec[bIdx]
+
+    return subVec, subBasis
 
 
 def partialTrace(rho: ndarray, subNum: int, dimList: List[int], index: Union[int, List[int]], mode=0) -> ndarray:
@@ -740,7 +819,6 @@ def blockDiag(matrix: ndarray, subIndex: List[int]):
     # Rearrange eigenvalues and corresponding eigenvectors in the ascending order.
     index = valsInit.argsort()
     vecs = vecsInit[:, index]
-    vals = valsInit[index]
 
     s1 = vecs[0:len(subIndex), subIndex]
     s2 = vecs[len(subIndex):len(matrix), subIndex]

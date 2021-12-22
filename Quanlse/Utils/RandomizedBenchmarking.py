@@ -39,8 +39,8 @@ from Quanlse.remoteSimulator import remoteSimulatorRunHamiltonian as runHamilton
 from Quanlse.Utils.Functions import fromMatrixToAngles
 from Quanlse.Utils.Clifford import clifford1q
 from Quanlse.QPlatform import Error
-from Quanlse.Simulator import PulseModel
-from Quanlse.Scheduler.Superconduct import SchedulerSuperconduct
+from Quanlse.Superconduct.Simulator import PulseModel
+from Quanlse.Superconduct.SchedulerSupport import SchedulerSuperconduct
 from Quanlse.QOperation.FixedGate import FixedGateOP
 from Quanlse.Utils.Infidelity import rhoInfidelity
 

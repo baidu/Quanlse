@@ -72,7 +72,7 @@ class QHamiltonian:
         The constructor of the QHamiltonian class.
         """
         self.subSysNum = subSysNum  # type: int
-        self.sysLevel = sysLevel  # type: int
+        self.sysLevel = sysLevel  # type: Union[int, List[int]]
         self.title = title  # type: str
         self.description = description  # type: str
         self.dt = dt  # type: float
@@ -301,12 +301,12 @@ class QHamiltonian:
         :param job: a QJob object
         """
         # Check if the input waveList matches the system conf of the QHam.
-        if job.sysLevel != self.sysLevel:
+        if job.sysLevel is not None and job.sysLevel != self.sysLevel:
             raise Error.ArgumentError(f"sysLevel does not match ({job.sysLevel} and {self.sysLevel})!")
         if job.subSysNum != self.subSysNum:
             raise Error.ArgumentError(f"subSysNum does not match ({job.subSysNum} and {self.subSysNum})!")
         if not self.verifyWaveListObj(job):
-            raise Error.ArgumentError("The input waveList is invalid for this ham, please check the"
+            raise Error.ArgumentError("The input QJob is invalid for this ham, please check the "
                                       "system size or the dimension of the matrices.")
         # Save WaveList
         del self._waveJob
@@ -640,7 +640,9 @@ class QHamiltonian:
                 if op.onSubSys >= self._subSysNum:
                     return False
                 if isinstance(self._sysLevel, int):
-                    if max(op.matrix.shape) > self._sysLevel:
+                    if op.matrix is None:
+                        return True
+                    elif max(op.matrix.shape) > self._sysLevel:
                         return False
                 else:
                     if max(op.matrix.shape) > self._sysLevel[op.onSubSys]:
@@ -810,7 +812,7 @@ class QHamiltonian:
                             operatorSize = shape(matrices[matrixIndex])
                             if not (operatorSize == (sysLevel, sysLevel)):
                                 raise Error.ArgumentError(f"Dim of input matrix {operatorSize} does not match"
-                                                          f" with the system level ({sysLevel}).")
+                                                          f" with the system level ({sysLevel}, {sysLevel}).")
                         else:
                             finalOperator = idMat
                     else:
@@ -820,7 +822,7 @@ class QHamiltonian:
                             operatorSize = shape(matrices[matrixIndex])
                             if not (operatorSize == (sysLevel, sysLevel)):
                                 raise Error.ArgumentError(f"Dim of input matrix {operatorSize} does not match"
-                                                          f" with the system level ({sysLevel}).")
+                                                          f" with the system level ({sysLevel}, {sysLevel}).")
                             finalOperator = kron(finalOperator, matrices[matrixIndex])
                         else:
                             finalOperator = kron(finalOperator, idMat)
@@ -1129,7 +1131,7 @@ class QHamiltonian:
         return job
 
     def simulate(self, job: QJob = None, state0: ndarray = None, recordEvolution: bool = False, shot: int = None,
-                 isOpen: bool = False, jobList: QJobList = None, refreshCache: bool = True, accelerate: bool = False,
+                 isOpen: bool = False, jobList: QJobList = None, refreshCache: bool = True, accelerate: str = None,
                  adaptive: bool = False, tolerance: float = 0.01) -> QResult:
         """
         Calculate the unitary evolution operator with a given Hamiltonian. This function supports
@@ -1148,7 +1150,7 @@ class QHamiltonian:
         :param refreshCache: it will neither clear nor rebuild cache if refreshCache is set to be True
         :param adaptive: use the adaptive solver if True
         :param tolerance: the greatest error of approximation for the adaptive solver
-        :param accelerate: use numba expm if true
+        :param accelerate: indicates the accelerator
 
         :return: result dictionary (or a list of result dictionaries when ``jobList`` is provided)
 

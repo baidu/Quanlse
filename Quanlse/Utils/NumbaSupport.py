@@ -35,7 +35,6 @@ def expm(mat: ndarray) -> ndarray:
     evals, evecs = linalg.eig(mat)
     expEvals = exp(evals)
     d2 = diag(expEvals)
-    #  Pardon this godawful circumlocution.
     b = dot(evecs, d2)
     bt = b.transpose()
     at = evecs.transpose()

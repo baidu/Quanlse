@@ -149,6 +149,32 @@ class QOperator:
         return obj
 
 
+chXY = QOperator('chXY', None)
+"""
+The symbol QOperator without matrix, indicates for the control channel XY.
+"""
+
+chX = QOperator('chX', None)
+"""
+The symbol QOperator without matrix, indicates for the control channel X.
+"""
+
+chY = QOperator('chY', None)
+"""
+The symbol QOperator without matrix, indicates for the control channel Y.
+"""
+
+chZ = QOperator('chZ', None)
+"""
+The symbol QOperator without matrix, indicates for the control channel Z.
+"""
+
+chRO = QOperator('chRO', None)
+"""
+The symbol QOperator without matrix, indicates for the readout channel.
+"""
+
+
 def sigmaI(arg=None) -> QOperator:
     r"""
     Matrix form of the Pauli-I operator:

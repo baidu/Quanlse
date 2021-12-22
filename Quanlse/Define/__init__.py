@@ -22,8 +22,13 @@ Global Definitions
 import os
 import sys
 
-import Quanlse
 from Quanlse.QPlatform import Error
+import Quanlse
+
+version = "2.2.0"
+"""
+Quanlse Version number.
+"""
 
 env = 'prod'
 

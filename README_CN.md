@@ -2,19 +2,19 @@
 
 ![](https://release-data.cdn.bcebos.com/Quanlse_title_cn.png)
 
-[![](https://img.shields.io/badge/license-Apache%202.0-green)](./LICENSE) [![](https://img.shields.io/badge/build-passing-green)]() ![](https://img.shields.io/badge/Python-3.7--3.8-blue) ![](https://img.shields.io/badge/release-v2.1.0-blue)
+[![](https://img.shields.io/badge/license-Apache%202.0-green)](./LICENSE) [![](https://img.shields.io/badge/build-passing-green)]() ![](https://img.shields.io/badge/Python-3.7--3.8-blue) ![](https://img.shields.io/badge/release-v2.2.0-blue)
 
 [量脉(Quanlse)](https://quanlse.baidu.com)是由百度研究院[量子计算研究所](https://quantum.baidu.com)开发的基于云服务的量子控制平台。量脉的目标是搭起连接量子软件和硬件之间的桥梁。通过强大的量脉云服务和开源 SDK，提供高效和专业的量子控制解决方案。
 
 量脉支持任意单量子比特门脉冲和双量子比特门脉冲的产生和调度。借助量脉的工具箱，用户可以实现模拟含噪超导量子芯片及其动力学演化、误差分析的可视化、表征并缓释误差、生成离子阱系统中的单/双量子比特门与广义 Mølmer-Sørensen 门脉冲，以及研究核磁系统中的相关应用。在实用化方面，量脉支持量子芯片参数标定、量子门脉冲校准等功能。此外，量脉还支持在脉冲层面实现量子算法以及量子控制领域的进阶研发。
 
-## 量脉v2.1
+## 量脉v2.2
 
-**注意：本次量脉v2.1的升级，进行了大幅更新与完善，我们强烈建议用户升级至量脉v2.1版本！**
+**注意：本次量脉v2.2的升级，在实用化方面进行了更新，并修复了已知问题，我们强烈建议用户升级至量脉v2.2版本！**
 
 ![](https://release-data.bd.bcebos.com/Quanlse_architecture_cn.png)
 
-我们一直致力于丰富并完善量脉的架构。在本次2.1版本的升级中，我们对量脉基础架构进行升级，进一步提升了用户体验并完善了实验室坐标系下的建模与仿真；在超导平台方面，我们新增了含读取腔的量子比特标定与脉冲校准功能，并提供了完整的教程；并新增了两量子比特含噪模拟器、含可调耦合器件的两量子比特模拟器及其分析工具。
+在本次2.2版本的升级中，我们针对超导量子实验新增了 `Lab` 包，允许用户快速构造脉冲实验，并提供参数存取、硬件对接等接口。同时，我们还对量脉基础架构进行了升级，支持更灵活的脉冲及脉冲控制通道的定义。在离子阱方面，我们新增了离子阱中鲁棒性较强的激光脉冲控制方法，并提供了离子阱量子计算中控制激光、离子阱芯片以及表征离子-声子相轨迹演化的基础包，方便用户直观地了解离子阱中噪声的影响。
 
 ## 安装
 
@@ -92,6 +92,7 @@ python 1-example-pi-pulse.py
 + **量脉离子阱**
   + [单/双量子比特门](https://quanlse.baidu.com/#/doc/tutorial-ion-trap-single-and-two-qubit-gate)
   + [广义 Mølmer-Sørensen 门](https://quanlse.baidu.com/#/doc/tutorial-general-MS-gate)
+  + [离子阱鲁棒双量子 Mølmer-Sørensen 门](https://quanlse.baidu.com/#/doc/tutorial-trapped-ion-robust-control)
 + [量脉核磁](https://quanlse.baidu.com/#/doc/nmr)
 
 ## 反馈

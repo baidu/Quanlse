@@ -19,8 +19,8 @@
 Example: readout simulation.
 """
 
-from Quanlse.Simulator import PulseModel, ReadoutModel, ReadoutPulse
-from Quanlse.Simulator.ReadoutSim3Q import readoutSim3Q
+from Quanlse.Superconduct.Simulator import ReadoutPulse
+from Quanlse.Superconduct.Simulator.ReadoutSim3Q import readoutSim3Q
 from math import pi
 from matplotlib import pyplot as plt
 from numpy import linspace

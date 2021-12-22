@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.2.0] - December-22-2021
+### Added
+- Add `Superconduct.Lab` package for rapidly designing superconducting experiments, including the scan or normal experiments; it also provides the interface `Superconduct.Lab.LabSpace` to access the data service, `Superconduct.Lab.Runner` to connect the experiment devices or simulator.
+- Add `Utils.ControlGate` module to define the composition of the logic gate and the corresponding control pulses.
+- Add `Utils.WaveFunction` module to define the preset waveform functions.
+- Add `Simulator.SimulatorAgent` module to define the agent served for Quanlse Simulator, it provides quick access to all data and functions of Quanlse Simulator; it is based on the `Superconduct.Lab` package.
+- Add `Utils.Functions.subspaceVec()` function to extract a population vector in a subspace.
+- Add symbol QOperator shortcuts `QOperator.chXY()`, `QOperator.chX()`, `QOperator.chY()`, `QOperator.chZ()`, `QOperator.chRO()` which has no matrix definition in `QOperator` module.
+- Add `TrappedIon.Optimizer.OptimizerIon` module to calculate robust laser sequence
+- Add `TrappedIon.Optimizer.QIonEvolution` module to define basic evolution function of trapped ion system
+- Add `TrappedIon.QIonSystem` module to define basic class of robust control laser and trapped ion Chip property.
+- Add `TrappedIon.QIonTrajectory` module to define the phonon trajectory evolution and visualize the ion-ion coupling.
+### Changed
+- Improve module `QWaveform`, add `dump2Dict()`, `dump2Json()` and `parseJson()` methods to fully support JSON serialization and deserialization; `QWaveform.addWave()` method now is also supported to pass string-formatted waveform function name to argument `f` to call the preset waveforms.
+- Newly add the `Superconduct` package, and move the Calibration/Simulator packages into `Superconduct`.
+
 ## [2.1.0] - September-27-2021
 ### Added
 

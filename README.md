@@ -2,19 +2,21 @@ English | [简体中文](README_CN.md)
 
 ![](https://release-data.cdn.bcebos.com/Quanlse_title_en.png)
 
-[![](https://img.shields.io/badge/license-Apache%202.0-green)](./LICENSE) [![](https://img.shields.io/badge/build-passing-green)]() ![](https://img.shields.io/badge/Python-3.7--3.8-blue) ![](https://img.shields.io/badge/release-v2.1.0-blue)
+[![](https://img.shields.io/badge/license-Apache%202.0-green)](./LICENSE) [![](https://img.shields.io/badge/build-passing-green)]() ![](https://img.shields.io/badge/Python-3.7--3.8-blue) ![](https://img.shields.io/badge/release-v2.2.0-blue)
 
 [Quanlse (量脉)](https://quanlse.baidu.com) is a cloud-based platform for quantum control developed by the [Institute for Quantum Computing](https://quantum.baidu.com) at Baidu Research. Quanlse aims to bridge the gap between quantum software and hardware. It provides efficient and professional quantum control solutions via an open-source SDK strengthened by Quanlse Cloud Service.
 
 Quanlse supports the pulse generation and scheduling of arbitrary single-qubit and two-qubit gates. With the help of toolkits in Quanlse, one can use Quanlse for modeling real superconducting quantum chips, simulating noisy quantum devices and dynamical evolution, visualizing error analysis, and characterizing and mitigating error. Single/two-qubit gates and general Mølmer-Sørensen gate realization on the trapped ion platform and relevant applications on the NMR platform are also available in Quanlse. For the practicality in experiments, Quanlse provides the toolkit for qubit and readout cavity calibration. Furthermore, Quanlse supports pulse-level control of quantum algorithms and advanced R&D (Research & Development) in the field of quantum control.
 
-## Quanlse v2.1
 
-**Attention: We have added some exciting features and further improved the original ones in Quanlse v2.1. We strongly recommend users to upgrade to Quanlse v2.1!**
+
+## Quanlse v2.2
+
+**Attention: We have added some exciting features and further improved the original ones in Quanlse v2.2. We strongly recommend users to upgrade to Quanlse v2.2!**
 
 ![](https://release-data.bd.bcebos.com/Quanlse_architecture_en.png)
 
-We have been trying to enrich and improve Quanlse's architecture. In this update, we have improved the fundamental modules in Quanlse in order to provide better user experience and support the modeling and simulation in lab frame. In superconducting platform, we have added the toolkit for qubit and readout calibration, and provided corresponding tutorials. we have also updated the noisy simulator, and added the two-qubit simulator, and two-qubit simulator with coupler architecture and some practical analysis tools.
+In this update, we provide `Lab` package to support the superconducting quantum computing experiment, as well as the interface for experiment parameter service and hardware access. At the same time, we improved the fundamental modules to support the flexible defining of control pulses and control channels. In trapped ion, we provide a robust quantum laser pulse control solution, and provide some fundamental modules for quantum laser, ion chip and ion-phonon evolution trajectory to reveal the noise influence on trapped ion system. 
 
 ## Install
 
@@ -93,6 +95,7 @@ Quanlse provides detailed and comprehensive tutorials from fundamental to advanc
 + **QuanlseTrappedIon**
   + [Single/Two-Qubit Gate](https://quanlse.baidu.com/#/doc/tutorial-ion-trap-single-and-two-qubit-gate)
   + [General Mølmer-Sørensen Gate](https://quanlse.baidu.com/#/doc/tutorial-general-MS-gate)
+  + [Robust laser control of Mølmer-Sørensen Gate ](https://quanlse.baidu.com/#/doc/tutorial-trapped-ion-robust-control)
 + [QuanlseNMR](https://quanlse.baidu.com/#/doc/nmr)
 
 ## Feedbacks

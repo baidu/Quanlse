@@ -41,7 +41,7 @@ def _cacheDictToList(ctrlCache: Dict[str, Any], waveCache: Dict[str, Any]):
     return _ctrlList, _waveList
 
 
-def solverNormal(ham: 'QHamiltonian', state0=None, shot=None, recordEvolution=False, accelerate=False):
+def solverNormal(ham: 'QHamiltonian', state0=None, shot=None, recordEvolution=False, accelerate=None):
     """
     Calculate the unitary evolution operator with a given Hamiltonian. This function supports
     both single-job and batch-job processing.
@@ -50,16 +50,28 @@ def solverNormal(ham: 'QHamiltonian', state0=None, shot=None, recordEvolution=Fa
     :param state0: the initial state vector. If None is given, this function will return the time-ordered
                    evolution operator, otherwise returns the final state vector.
     :param recordEvolution: the detailed procedure will be recorded if True
-    :param accelerate: use numba expm if true
+    :param accelerate: indicates the accelerator
     :param shot: return the population of the eigenstates when ``shot`` is provided
     :return: result dictionary (or a list of result dictionaries when ``jobList`` is provided)
     """
 
     # Import expm
     if accelerate:
-        from Quanlse.Utils.NumbaSupport import expm
+        try:
+            if accelerate == 'numba':
+                from Quanlse.Utils.NumbaSupport import expm
+            elif accelerate == 'jax':
+                from Quanlse.Utils.JaxSupport import expm
+            else:
+                raise Error.Error(f"Unsupported accelerator {accelerate}!")
+        except ImportError:
+            raise Error.Error("You should install Numba (or Jax) to activate the acceleration.")
     else:
         from scipy.linalg import expm
+
+    # Create cache
+    if ham.driftCache is None:
+        ham.buildCache()
 
     sysLevelLen = 1 if isinstance(ham.sysLevel, int) else len(ham.sysLevel)
     sysLevel = [ham.sysLevel] if isinstance(ham.sysLevel, int) else ham.sysLevel
@@ -133,19 +145,27 @@ def solverAdaptive(ham: 'QHamiltonian', state0: ndarray = None, shot=None, toler
                    evolution operator, otherwise returns the final state vector.
     :param shot: return the population of the eigenstates when ``shot`` is provided
     :param tolerance: the greatest error for approximation
-    :param accelerate: use numba expm if true
+    :param accelerate: indicates the accelerator
     :return: Return a dictionary containing the result.
     """
 
     # Import expm
     if accelerate:
         try:
-            from Quanlse.Utils.NumbaSupport import expm
+            if accelerate == 'numba':
+                from Quanlse.Utils.NumbaSupport import expm
+            elif accelerate == 'jax':
+                from Quanlse.Utils.JaxSupport import expm
+            else:
+                raise Error.Error(f"Unsupported accelerator {accelerate}!")
         except ImportError:
-            raise Error.Error("You should install Numba to activate the acceleration; "
-                              "Please visit https://numba.pydata.org/ for more information.")
+            raise Error.Error("You should install Numba (or Jax) to activate the acceleration.")
     else:
         from scipy.linalg import expm
+
+    # Create cache
+    if ham.driftCache is None:
+        ham.buildCache()
 
     sysLevelLen = 1 if isinstance(ham.sysLevel, int) else len(ham.sysLevel)
     sysLevel = [ham.sysLevel] if isinstance(ham.sysLevel, int) else ham.sysLevel
@@ -237,9 +257,22 @@ def solverOpenSystem(ham: 'QHamiltonian', state0=None, recordEvolution=False, ac
     :param state0: the initial state vector. If None is given, this function will return the time-ordered
                    evolution operator, otherwise returns the final state vector.
     :param recordEvolution: the detailed procedure will be recorded if True
-    :param accelerate: use numba expm if true
+    :param accelerate: indicates the accelerator
     :return: result dictionary (or a list of result dictionaries when ``jobList`` is provided)
     """
+    if accelerate:
+        try:
+            if accelerate == 'numba':
+                from Quanlse.Utils.NumbaSupport import expm
+            elif accelerate == 'jax':
+                from Quanlse.Utils.JaxSupport import expm
+            else:
+                raise Error.Error(f"Unsupported accelerator {accelerate}!")
+        except ImportError:
+            raise Error.Error("You should install Numba (or Jax) to activate the acceleration.")
+    else:
+        from scipy.linalg import expm
+
     if state0.shape[1] == 1:
         rho0 = state0 @ dagger(state0)
     else:
@@ -247,12 +280,6 @@ def solverOpenSystem(ham: 'QHamiltonian', state0=None, recordEvolution=False, ac
             rho0 = state0
         else:
             raise Error.ArgumentError('The input state is neither a density matrix nor a state vector')
-
-    # Import expm
-    if accelerate:
-        from Quanlse.Utils.NumbaSupport import expm
-    else:
-        from scipy.linalg import expm
 
     ctrlList, waveList = _cacheDictToList(ham.ctrlCache, ham.waveCache)
 
@@ -271,7 +298,7 @@ def solverOpenSystem(ham: 'QHamiltonian', state0=None, recordEvolution=False, ac
     propHistotry = []
     dim = None
 
-    # 计算维度
+    # Calculate the dimension
     if isinstance(sysLevel, int):
         dim = sysLevel ** qubitsNum
     elif isinstance(sysLevel, list):

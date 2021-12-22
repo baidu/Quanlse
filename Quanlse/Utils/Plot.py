@@ -89,7 +89,7 @@ def plotBarGraph(x: List[Any], y: List[float], title: str = "", xLabel: str = ""
     plt.xticks(xList, x)
 
     # draw the line of y = 0
-    plt.axhline(y=0, color='#ccc', linestyle=':', linewidth=lineWidth)
+    plt.axhline(y=0, linestyle=':', linewidth=lineWidth)
     plt.show()
 
 

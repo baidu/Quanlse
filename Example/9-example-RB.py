@@ -25,9 +25,9 @@ from scipy.optimize import curve_fit
 
 from Quanlse.Utils.Functions import basis, tensor
 from Quanlse.QOperation import FixedGate
-from Quanlse.Simulator import PulseModel
-from Quanlse.Scheduler.Superconduct import SchedulerSuperconduct
-from Quanlse.Scheduler.Superconduct.GeneratorRBPulse import SingleQubitCliffordPulseGenerator
+from Quanlse.Superconduct.Simulator import PulseModel
+from Quanlse.Superconduct.SchedulerSupport import SchedulerSuperconduct
+from Quanlse.Superconduct.SchedulerSupport.GeneratorRBPulse import SingleQubitCliffordPulseGenerator
 from Quanlse.Utils.RandomizedBenchmarking import RB
 from Quanlse import Define
 

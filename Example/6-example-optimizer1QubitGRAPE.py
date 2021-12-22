@@ -29,7 +29,6 @@ from Quanlse import Define
 from Quanlse.remoteOptimizer import remoteOptimize1QubitGRAPE as runOptimize1QubitGRAPE
 
 
-
 # Your token:
 # Please visit http://quantum-hub.baidu.com
 Define.hubToken = ''

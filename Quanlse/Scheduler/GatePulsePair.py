@@ -20,74 +20,90 @@
 The GatePulsePair object.
 """
 
-import sys
 import copy
 from typing import List, Union, Optional
 
+from Quanlse.QWaveform import QJob
+from Quanlse.QOperator import QOperator
+from Quanlse.QPlatform import Error
 from Quanlse.QOperation.FixedGate import FixedGateOP
 from Quanlse.QOperation.RotationGate import RotationGateOP
-from Quanlse.QWaveform import QJob
-from Quanlse.QOperation import Error, CircuitLine
-from Quanlse.QOperator import QOperator
 
 
 class GatePulsePair:
     """
     A gate with its corresponding pulses.
 
-    :param cirLine: quantum gate in the quantum circuit model.
-    :param pulses: QJob object with corresponding pulses.
+    :param gate: the FixedGateOP or RotationGateOP object.
+    :param qubits: indicates the qubits of the gate performing on
+    :param job: the QJob object
+    :param t0: the start time
     """
 
-    def __init__(self, cirLine: CircuitLine, pulses: QJob = None):
+    def __init__(self, gate: Union[FixedGateOP, RotationGateOP] = None, qubits: Union[int, List[int]] = None,
+                 t0: float = None, job: QJob = None):
         """ Initialization """
+        # Check property
+        if gate is not None:
+            if gate.bits is not None:
+                if isinstance(qubits, int):
+                    if gate.bits != 1:
+                        raise Error.ArgumentError(f"The gate performs on {gate.bits} qubits, however onSysNum "
+                                                  f"performs on only 1 qubits.")
+                elif isinstance(qubits, list):
+                    if gate.bits != len(qubits):
+                        raise Error.ArgumentError(f"The gate performs on {gate.bits} qubits, however onSysNum "
+                                                  f"performs on {len(qubits)} qubits.")
         # Set properties
-        self._pulses = None  # type: Optional[QJob]
-        self._cirLine = None  # type: Optional[CircuitLine]
+        self._gate = gate  # type: Union[FixedGateOP, RotationGateOP]
+        self._qubits = qubits  # type: Union[int, List[int]]
         self._onSubSys = []  # type: List[int]
         self._t = 0.0  # type: float
-
-        # Set objects
-        self.cirLine = copy.deepcopy(cirLine)
-        self.pulses = copy.deepcopy(pulses)
-
-    def __eq__(self, other):
-        """ Operator == """
-        return self._compareObj(other)
-
-    def __ne__(self, other):
-        """ Operator != """
-        return not self._compareObj(other)
+        self._t0 = t0  # type: float
+        self.job = job
 
     @property
-    def pulses(self) -> Union[QJob, None]:
+    def job(self) -> Union[QJob, None]:
         """
         Get pulses property
         """
-        return self._pulses
+        return self._job
 
-    @pulses.setter
-    def pulses(self, item: Optional[QJob]):
+    @job.setter
+    def job(self, item: Optional[QJob]):
         """
         Set pulses property
         """
         if item is not None:
-            self._pulses = copy.deepcopy(item)
+            self._job = copy.deepcopy(item)
             # pulse duration
-            self._t, _ = self.pulses.computeMaxTime()
+            self._t, _ = self.job.computeMaxTime()
             # Generate onSubSys
             onSubSys = []
-            for opKey in self.pulses.ctrlOperators.keys():
-                ops = self.pulses.ctrlOperators[opKey]
+            for opKey in self.job.ctrlOperators.keys():
+                ops = self.job.ctrlOperators[opKey]
                 if isinstance(ops, list):
                     for op in ops:
                         onSubSys.append(op.onSubSys)
                 elif isinstance(ops, QOperator):
                     onSubSys.append(ops.onSubSys)
 
-            onSubSys = list(set(onSubSys) | set(self.cirLine.qRegIndexList))
+            _onSubSys = onSubSys if isinstance(onSubSys, list) else [onSubSys]
+            _gateQubits = self._qubits if isinstance(self._qubits, list) else [self._qubits]
+            onSubSys = list(set(_onSubSys) | set(_gateQubits))
             onSubSys.sort()
             self._onSubSys = onSubSys
+        else:
+            self._job = None
+            self._onSubSys = self._qubits
+            self._t = 0
+
+    @property
+    def qubits(self) -> Union[int, List[int]]:
+        """
+        Indicates the qubits of the gate performing on
+        """
+        return self._qubits
 
     @property
     def t(self) -> float:
@@ -97,6 +113,20 @@ class GatePulsePair:
         return self._t
 
     @property
+    def t0(self) -> float:
+        """
+        The start time of the GatePulsePair
+        """
+        return self._t0
+
+    @t0.setter
+    def t0(self, value: float):
+        """
+        The start time of the GatePulsePair
+        """
+        self._t0 = value
+
+    @property
     def onSubSys(self) -> List[int]:
         """
         The sub-systems which the pulses work on.
@@ -104,44 +134,21 @@ class GatePulsePair:
         return self._onSubSys
 
     @property
-    def cirLine(self):
+    def gate(self) -> Union[FixedGateOP, RotationGateOP]:
         """
-        Get cirLine property
+        Get the FixedGateOP or RotationGateOP object
         """
-        return self._cirLine
+        return self._gate
 
-    @cirLine.setter
-    def cirLine(self, item):
+    @gate.setter
+    def gate(self, item: Union[FixedGateOP, RotationGateOP]):
         """
-        Set cirLine property
+        Set the FixedGateOP or RotationGateOP object
         """
-        self._cirLine = copy.deepcopy(item)
-
-    def _compareObj(self, other):
-        """
-        Compare two GatePulsePair object.
-        """
-        if not isinstance(other, GatePulsePair):
-            raise Error.ArgumentError(f"GatePulsePair object can not compare with a {type(other)}.")
-        if isinstance(other.cirLine.data, FixedGateOP) and isinstance(self.cirLine.data, RotationGateOP):
-            return False
-        if isinstance(other.cirLine.data, RotationGateOP) and isinstance(self.cirLine.data, FixedGateOP):
-            return False
-        if other.cirLine.data.name != self.cirLine.data.name:
-            return False
-        if other.cirLine.qRegIndexList != self.cirLine.qRegIndexList:
-            return False
-        if isinstance(self.cirLine.data, RotationGateOP):
-            argLen = len(other.cirLine.data.uGateArgumentList)
-            for idx in range(argLen):
-                verify = abs(other.cirLine.data.uGateArgumentList[idx] -
-                             self.cirLine.data.uGateArgumentList[idx])
-                if verify > sys.float_info.epsilon:
-                    return False
-        return True
+        self._gate = copy.deepcopy(item)
 
     def hasPulse(self):
         """
         check if the instance is empty
         """
-        return True if self.pulses is not None else False
+        return True if self.job is not None else False

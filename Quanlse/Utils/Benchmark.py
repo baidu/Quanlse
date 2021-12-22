@@ -108,7 +108,7 @@ def stateTruthTable(unitary, qubitNum, sysLevel, initialBasisList=None, finalBas
         probVec = []
         for index, item in enumerate(stateFinalTemp):
             if index in finalBasisList:
-                probVec.append(abs(item) ** 2)
+                probVec.append(abs(item[0]) ** 2)
         resultMatrix.append(probVec)
 
     return array(resultMatrix)

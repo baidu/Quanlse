@@ -77,21 +77,21 @@ For more details, please visit https://quanlse.baidu.com/#/doc/tutorial-construc
 """
 
 import copy
+import json
 import math
 import pickle
 import base64
-import numpy
 
-from math import floor, sqrt, pi, atan
-from scipy.special import erf
+from math import floor, pi
 import matplotlib.pyplot as plt
 from collections.abc import KeysView
-from numpy import array, shape, linspace, arange, exp, sign
+from numpy import array, shape, linspace, arange
 from typing import Dict, Any, List, Union, Tuple, Callable, Optional
 
-from Quanlse.QPlatform import Error
+from Quanlse.QPlatform import Error, Utilities
 from Quanlse.QOperator import QOperator, driveX, driveY
 from Quanlse.Utils.Plot import plotPulse
+from Quanlse.Utils.WaveFunction import preset
 from Quanlse.Utils.Functions import generateOperatorKey, combineOperatorAndOnSubSys, formatOperatorInput
 
 QWAVEFORM_FLAG_ALWAYS_ON = 0b00001  # type: int
@@ -161,7 +161,7 @@ class QWaveform:
     :param flag: wave flag
     """
 
-    def __init__(self, f: Callable = None, t0: Union[int, float] = 0.0, t: Union[int, float] = 0.0,
+    def __init__(self, f: Union[Callable, str] = None, t0: Union[int, float] = 0.0, t: Union[int, float] = 0.0,
                  args: Any = None, seq: List[float] = None, dt: float = None, strength: float = 1.,
                  freq: float = None, phase: float = None, phase0: float = None, tag: str = None, flag: int = 0) -> None:
         """
@@ -179,6 +179,7 @@ class QWaveform:
             self.t = None  # type: Optional[float]
             self.seq = copy.deepcopy(seq)  # type: Optional[List[Union[float, complex]]]
             self.args = None  # type: Optional[Any]
+            self.name = ""  # type: Optional[str]
         elif callable(f) or isinstance(f, str):
             if seq is not None:
                 print("WARNING: func is given, hence the input of seq is ignored!")
@@ -187,13 +188,13 @@ class QWaveform:
             self.t = t  # type: Optional[float]
             self.seq = None  # type: Optional[List[Union[float, complex]]]
             self.args = copy.deepcopy(args)  # type: Optional[Any]
+            self.name = f if isinstance(f, str) else ""  # type: Optional[str]
         else:
             raise Error.ArgumentError("Unsupported type of input for func, it should either"
                                       " be a string, function or None.")
 
         # Common arguments.
         self.t0 = float(t0)  # type: float
-        self.name = ""  # type: Optional[str]
         self.dt = None if dt is None else float(dt)  # type: Optional[float]
         self.strength = float(strength)  # type: float
         self.freq = freq  # type: Optional[float]
@@ -226,10 +227,20 @@ class QWaveform:
         """
         t = args[0]
         if self.func is not None:
+            # Obtain the waveform
+            if isinstance(self.func, str):
+                # When self.func is a string
+                func = preset(self.func)
+            elif isinstance(self.func, Callable):
+                # When self.func is a callable function
+                func = self.func
+            else:
+                raise Error.ArgumentError(f"Unknown type ({type(self.func)}) of the input function!")
+            # Run the function
             if len(args) == 1:
-                return self.func(t, self.args)
+                return func(t, self.args)
             elif len(args) == 2:
-                return self.func(t, args)
+                return func(t, args)
             elif len(args) == 0:
                 raise Error.ArgumentError("You should input the time argument!")
             else:
@@ -336,6 +347,44 @@ class QWaveform:
         plotPulse(x, y, xLabel=f'Time ({xUnit})', yLabel=yLabel, title=names, color=colors, dark=dark)
         plt.show()
 
+    def dump2Dict(self) -> Dict:
+        """
+        Return the dictionary which characterizes the current instance.
+        """
+        if isinstance(self.func, str):
+            waveDict = {
+                "func": "" if self.func is None else self.func,
+                "args": {} if self.args is None else copy.deepcopy(self.args),
+                "t": 0. if self.t is None else self.t,
+                "t0": 0. if self.t0 is None else self.t0,
+                "strength": 1. if self.strength is None else self.strength
+            }
+            if self.seq is not None:
+                waveDict["seq"] = copy.deepcopy(self.seq)
+            if self.name is not None:
+                waveDict["name"] = self.name
+            if self.seq is not None:
+                waveDict["dt"] = self.dt
+            if self.freq is not None:
+                waveDict["freq"] = self.freq
+            if self.phase is not None:
+                waveDict["phase"] = self.phase
+            if self.phase0 is not None:
+                waveDict["phase0"] = self.phase0
+            if self.tag is not None:
+                waveDict["tag"] = self.tag
+            if self.flag is not None:
+                waveDict["flag"] = self.flag
+            return waveDict
+        else:
+            raise Error.ArgumentError("Can not dump waveform with callable function to JSON string.")
+
+    def dump2Json(self) -> str:
+        """
+        Return the JSON string which characterizes the current instance.
+        """
+        return json.dumps(self.dump2Dict())
+
     def dump(self, dt: float = None) -> str:
         """
         Return base64 encoded string.
@@ -360,6 +409,50 @@ class QWaveform:
         Return the copy of the object
         """
         return copy.deepcopy(self)
+
+    @staticmethod
+    def parseJson(jsonObj: Union[str, Dict]) -> 'QWaveform':
+        """
+        Create object from a JSON encoded string or dictionary.
+
+        :param jsonObj: a JSON encoded string or dictionary
+        :return: a QJob object
+        """
+        if isinstance(jsonObj, str):
+            waveDict = json.loads(jsonObj)
+        else:
+            waveDict = copy.deepcopy(jsonObj)
+        if "func" in waveDict.keys():
+            waveObj = QWaveform(f=waveDict["func"])
+        elif "seq" in waveDict.keys():
+            waveObj = QWaveform(seq=waveDict["seq"])
+        else:
+            raise Error.ArgumentError("You should input either func or seq.")
+
+        if "args" in waveDict.keys():
+            waveObj.args = waveDict["args"]
+        if "name" in waveDict.keys():
+            waveObj.name = waveDict["name"]
+        if "t" in waveDict.keys():
+            waveObj.t = waveDict["t"]
+        if "t0" in waveDict.keys():
+            waveObj.t0 = waveDict["t0"]
+        if "strength" in waveDict.keys():
+            waveObj.strength = waveDict["strength"]
+        if "dt" in waveDict.keys():
+            waveObj.dt = waveDict["dt"]
+        if "freq" in waveDict.keys():
+            waveObj.freq = waveDict["freq"]
+        if "phase" in waveDict.keys():
+            waveObj.phase = waveDict["phase"]
+        if "phase0" in waveDict.keys():
+            waveObj.phase0 = waveDict["phase0"]
+        if "tag" in waveDict.keys():
+            waveObj.tag = waveDict["tag"]
+        if "flag" in waveDict.keys():
+            waveObj.flag = waveDict["flag"]
+
+        return waveObj
 
     @staticmethod
     def load(base64Str: str) -> 'QWaveform':
@@ -394,7 +487,7 @@ class QJob:
     :param ampGamma: An optional parameter indicating the amplitude's Gamma value
     """
 
-    def __init__(self, subSysNum: int, sysLevel: Union[int, List[int]], dt: float,
+    def __init__(self, subSysNum: int = None, sysLevel: Union[None, int, List[int]] = None, dt: float = None,
                  title: str = "", description: str = "", ampGamma: Optional[Union[int, float]] = None) -> None:
         """
         Constructor for QJob class.
@@ -404,7 +497,7 @@ class QJob:
         self.description = description  # type: str
         self.dt = dt  # type: float
         self.subSysNum = subSysNum  # type: int
-        self.sysLevel = sysLevel  # type: int
+        self.sysLevel = sysLevel  # type: Union[int, List[int], None]
         self.tagWhiteListForClearWaves = []
 
         self.endTimeDt = 0  # type: int
@@ -483,26 +576,29 @@ class QJob:
         self._subSysNum = value
 
     @property
-    def sysLevel(self) -> Union[int, List[int]]:
+    def sysLevel(self) -> Union[None, int, List[int]]:
         """
         Return the size of the subsystem.
         """
         return self._sysLevel
 
     @sysLevel.setter
-    def sysLevel(self, value: Union[int, List[int]]):
+    def sysLevel(self, value: Union[None, int, List[int]]):
         """
         Set the level of the subsystems.
 
         :param value: the number of the subsystems
         """
-        if not isinstance(value, int) and not isinstance(value, list):
-            raise Error.ArgumentError("sysSize must be an integer or a list!")
-        if isinstance(value, list) and min(value) < 2:
-            raise Error.ArgumentError("All items in sysSize must be larger than 1!")
-        if isinstance(value, int) and value < 2:
-            raise Error.ArgumentError(f"System level must be larger than 1, but {value} input!")
-        self._sysLevel = value
+        if value is not None:
+            if not isinstance(value, int) and not isinstance(value, list):
+                raise Error.ArgumentError("sysSize must be an integer or a list!")
+            if isinstance(value, list) and min(value) < 2:
+                raise Error.ArgumentError("All items in sysSize must be larger than 1!")
+            if isinstance(value, int) and value < 2:
+                raise Error.ArgumentError(f"System level must be larger than 1, but {value} input!")
+            self._sysLevel = value
+        else:
+            self._sysLevel = value
 
     @property
     def waveCache(self) -> Dict[str, Any]:
@@ -684,7 +780,7 @@ class QJob:
         :param freq: wave frequency shift
         :param phase: pulse phase shift (will accumulate during the entire pulse execution)
         :param phase0: pulse phase shift (will not accumulate during the entire pulse execution)
-        :param name: a user-given name to the wave
+        :param name: give a new name for the input control operators
         :param tag: wave tag indicating purpose
         :param flag: wave flag
         :return: None
@@ -696,7 +792,7 @@ class QJob:
                 # Generate the operator key
                 _opKey = self.addOperators(operators, onSubSys, name=name,
                                            flagDoNotClear=(_flag & QWAVEFORM_FLAG_DO_NOT_CLEAR) > 0)
-            elif name is not None:
+            elif operators is None and name is not None:
                 _opKey = name
             else:
                 raise Error.ArgumentError(
@@ -793,8 +889,8 @@ class QJob:
         # Set the local oscillator frequency and the phase
         self._LO[opKey] = (freq, phase)
 
-    def addOperators(self, operators: Union[QOperator, Callable, List[QOperator], List[Callable]],
-                     onSubSys: Union[int, List[int]], name: str = None, flagDoNotClear: bool = False) -> str:
+    def addOperators(self, operators: Union[QOperator, Callable, List[QOperator], List[Callable]] = None,
+                     onSubSys: Union[int, List[int]] = None, name: str = None, flagDoNotClear: bool = False) -> str:
         """
         Add control terms onto the specified subsystem.
 
@@ -821,10 +917,15 @@ class QJob:
                 raise Error.ArgumentError(f"Dimension of operator ({dim}, {dim}) does not match the sysLevel.")
 
             operatorForSave = _operators
-        else:
+        elif _operators is not None and onSubSys is not None:
             # If users input the onSubSys, combineOperatorAndOnSubSys will update the onSubSys of
             #     the operators.
             operatorForSave = combineOperatorAndOnSubSys(self._subSysNum, _operators, onSubSys)
+        elif _operators is None and name is not None:
+            # If users input only name
+            operatorForSave = None
+        else:
+            raise Error.ArgumentError("operators should not be None!")
 
         # Set the name if it is given
         if name is not None:
@@ -865,7 +966,7 @@ class QJob:
         """
         if isinstance(obj, QJob):
             # When the object is a QJob.
-            if obj.sysLevel != self.sysLevel:
+            if (obj.sysLevel is not None and self.sysLevel is not None) and obj.sysLevel != self.sysLevel:
                 raise Error.ArgumentError("sysLevel does not match!")
             if obj.subSysNum != self.subSysNum:
                 raise Error.ArgumentError("subSysNum does not match!")
@@ -1110,8 +1211,8 @@ class QJob:
             x.append(list(tList))
             yLabel.append(yUnit)
             plotNames.append(name)
-            # If the amplitues are complex number
-            if aList.dtype in [numpy.complex, numpy.complex128]:
+            # If the amplitudes are complex number
+            if aList.dtype in [complex]:
                 isComplex = True
             # Whether repetitive colors or all blue
             if color is None:
@@ -1208,7 +1309,7 @@ class QJob:
         """
         Compute the time duration of the whole circuit according to the waves added.
 
-        :return: returned total time duration
+        :return: returned total time duration Tuple[maxTime, maxDt]
         """
         # Find the longest time
         maxTime = 0.0
@@ -1426,7 +1527,6 @@ class QJob:
         :param maxEndTime: maximum ending time
         :return: a base64 encoded string
         """
-
         # The critical step is transforming all waveform functions to the
         #     sequence, because functions can not the serialization.
         obj = self.waveFunctionsToSequences(maxEndTime=maxEndTime)
@@ -1445,11 +1545,131 @@ class QJob:
         del obj
         return base64str.decode()
 
+    def dump2Dict(self) -> Dict:
+        """
+        Return the dictionary which characterizes the current instance.
+        """
+        jobDict = {}
+        # Basic information
+        if self.subSysNum is not None:
+            jobDict["subSysNum"] = self.subSysNum
+        if self.sysLevel is not None:
+            jobDict["sysLevel"] = self.sysLevel
+        if self.title is not None:
+            jobDict["title"] = self.title
+        if self.description is not None:
+            jobDict["description"] = self.description
+        if self.ampGamma is not None:
+            jobDict["ampGamma"] = self.ampGamma
+        if self.dt is not None:
+            jobDict["dt"] = self.dt
+        if len(self.tagWhiteListForClearWaves) > 1:
+            jobDict["tagWhiteListForClearWaves"] = copy.deepcopy(self.tagWhiteListForClearWaves)
+        if len(self.LO) > 1:
+            jobDict["LO"] = copy.deepcopy(self.LO)
+        # Waveforms
+        jobDict["waves"] = {}
+        for _waveKey in self.waves:
+            jobDict["waves"][_waveKey] = []
+            for _wave in self.waves[_waveKey]:
+                jobDict["waves"][_waveKey].append(copy.deepcopy(_wave.dump2Dict()))
+        # Operators
+        jobDict["operators"] = {}
+        for _opKey in self.ctrlOperators:
+            jobDict["operators"][_opKey] = []
+            if isinstance(self.ctrlOperators[_opKey], list):
+                for _subOp in self.ctrlOperators[_opKey]:
+                    if _subOp.matrix is not None:
+                        jobDict["operators"][_opKey].append({
+                            "name": _subOp.name,
+                            "onSubSys": _subOp.onSubSys,
+                            "matrix": Utilities.numpyMatrixToDictMatrix(_subOp.matrix)
+                        })
+                    else:
+                        jobDict["operators"][_opKey].append({
+                            "name": _subOp.name,
+                            "onSubSys": _subOp.onSubSys,
+                        })
+            else:
+                _subOp = self.ctrlOperators[_opKey]
+                if _subOp.matrix is not None:
+                    jobDict["operators"][_opKey].append({
+                        "name": _subOp.name,
+                        "onSubSys": _subOp.onSubSys,
+                        "matrix": Utilities.numpyMatrixToDictMatrix(_subOp.matrix)
+                    })
+                else:
+                    jobDict["operators"][_opKey].append({
+                        "name": _subOp.name,
+                        "onSubSys": _subOp.onSubSys
+                    })
+
+        return jobDict
+
+    def dump2Json(self):
+        """
+        Return the JSON string which characterizes the current instance.
+        """
+        return json.dumps(self.dump2Dict())
+
     def copy(self) -> 'QJob':
         """
         Return the copy of the object
         """
         return copy.deepcopy(self)
+
+    @staticmethod
+    def parseJson(jsonObj: Union[str, Dict]) -> 'QJob':
+        """
+        Create object from a JSON encoded string or dictionary.
+
+        :param jsonObj: a JSON encoded string or dictionary
+        :return: a QJob object
+        """
+        if isinstance(jsonObj, str):
+            jsonDict = json.loads(jsonObj)
+        else:
+            jsonDict = copy.deepcopy(jsonObj)
+        # Basic information
+        subSysNum = jsonDict["subSysNum"] if "subSysNum" in jsonDict.keys() else None
+        sysLevel = jsonDict["sysLevel"] if "sysLevel" in jsonDict.keys() else None
+        title = jsonDict["title"] if "title" in jsonDict.keys() else ""
+        description = jsonDict["description"] if "description" in jsonDict.keys() else ""
+        dt = jsonDict["dt"] if "dt" in jsonDict.keys() else None
+        ampGamma = jsonDict["ampGamma"] if "ampGamma" in jsonDict.keys() else None
+        tagWhiteListForClearWaves = jsonDict["tagWhiteListForClearWaves"] if \
+            "tagWhiteListForClearWaves" in jsonDict.keys() else []
+        LO = jsonDict["LO"] if "LO" in jsonDict.keys() else {}
+        # Create QJob instance
+        job = QJob(subSysNum, sysLevel, dt, title, description, ampGamma)
+        job.LO = LO
+        job.tagWhiteListForClearWaves = tagWhiteListForClearWaves
+        # Insert operators
+        for _opKey in jsonDict["operators"]:
+            _op = jsonDict["operators"][_opKey]
+            if isinstance(_op, list):
+                _opList = []
+                _onSubSysList = []
+                for _subOp in _op:
+                    if "matrix" in _subOp.keys():
+                        _matrix = Utilities.dictMatrixToNumpyMatrix(_subOp["matrix"], complex)
+                    else:
+                        _matrix = None
+                    _opList.append(QOperator(name=_subOp["name"], matrix=_matrix))
+                    _onSubSysList.append(_subOp["onSubSys"])
+                job.addOperators(_opList, _onSubSysList, name=_opKey)
+            else:
+                if "matrix" in _op.keys():
+                    _matrix = Utilities.dictMatrixToNumpyMatrix(_op["matrix"], complex)
+                else:
+                    _matrix = None
+                job.addOperators(QOperator(name=_op["name"], matrix=_matrix), onSubSys=_op["onSubSys"], name=_opKey)
+        # Insert waves
+        for _waveKey in jsonDict["waves"]:
+            for _waveDict in jsonDict["waves"][_waveKey]:
+                _waveObj = QWaveform.parseJson(_waveDict)
+                job.addWave(name=_waveKey, waves=_waveObj)
+        return job
 
     @staticmethod
     def load(base64Str: str) -> 'QJob':
@@ -1575,13 +1795,13 @@ class QJobList:
         """
         if isinstance(jobs, list):
             for job in jobs:
-                if job.sysLevel != self.sysLevel:
+                if job.sysLevel is None and self.sysLevel is None and job.sysLevel != self.sysLevel:
                     raise Error.ArgumentError("sysLevel does not match!")
                 if job.subSysNum != self.subSysNum:
                     raise Error.ArgumentError("subSysNum does not match!")
                 self._jobList.append(copy.deepcopy(job))
         elif isinstance(jobs, QJob):
-            if jobs.sysLevel != self.sysLevel:
+            if jobs.sysLevel is None and self.sysLevel is None and jobs.sysLevel != self.sysLevel:
                 raise Error.ArgumentError("sysLevel does not match!")
             if jobs.subSysNum != self.subSysNum:
                 raise Error.ArgumentError("subSysNum does not match!")
@@ -1737,7 +1957,7 @@ class QResult:
         return obj
 
 
-def gaussian(t: Union[int, float], a: float, tau: float, sigma: float, t0: Union[int, float] = 0.,
+def gaussian(t: Union[float, List], a: float, tau: float, sigma: float, t0: Union[int, float] = 0.,
              freq: float = None, phase: float = None, phase0: float = None) -> QWaveform:
     """
     Return a QWaveform object of Gaussian wave.
@@ -1752,16 +1972,12 @@ def gaussian(t: Union[int, float], a: float, tau: float, sigma: float, t0: Union
     :param phase0: pulse phase shift (will not accumulate during the entire pulse execution)
     :return: returned Gaussian QWaveform
     """
-
-    def func(_t, args):
-        """ The Gaussian function """
-        _a, _tau, _sigma = args
-        if _sigma == 0:
-            return 0
-        pulse = _a * exp(- ((_t - _tau) ** 2 / (2 * _sigma ** 2)))
-        return pulse
-
-    wave = QWaveform(f=func, t0=t0, t=t, args=(a, tau, sigma), freq=freq, phase=phase, phase0=phase0)
+    args = {
+        "a": a,
+        "tau": tau,
+        "sigma": sigma
+    }
+    wave = QWaveform(f="gaussian", t0=t0, t=t, args=args, freq=freq, phase=phase, phase0=phase0)
     wave.name = "gaussian"
     return wave
 
@@ -1779,12 +1995,10 @@ def square(t: Union[int, float], a: float, t0: Union[int, float] = 0., freq: flo
     :param phase0: pulse phase shift (will not accumulate during the entire pulse execution)
     :return: returned square QWaveform
     """
-
-    def func(_t, args):
-        """ The constant function """
-        return args
-
-    wave = QWaveform(f=func, t0=t0, t=t, args=a, freq=freq, phase=phase, phase0=phase0)
+    args = {
+        "a": a
+    }
+    wave = QWaveform(f="square", t0=t0, t=t, args=args, freq=freq, phase=phase, phase0=phase0)
     wave.name = "square"
     return wave
 
@@ -1801,12 +2015,10 @@ def delay(t: Union[int, float], t0: Union[int, float] = 0., freq: float = None,
     :param phase0: pulse phase shift (will not accumulate during the entire pulse execution)
     :return: returned square QWaveform
     """
-
-    def func(_t, _):
-        """ The constant function """
-        return 0.
-
-    wave = QWaveform(f=func, t0=t0, t=t, args=None, freq=freq, phase=phase, phase0=phase0)
+    args = {
+        "a": 0.
+    }
+    wave = QWaveform(f="square", t0=t0, t=t, args=args, freq=freq, phase=phase, phase0=phase0)
     wave.name = "delay"
     return wave
 
@@ -1819,12 +2031,10 @@ def virtualZ(phase: float = None, t0: Union[int, float] = 0.) -> QWaveform:
     :param t0: start time
     :return: returned square QWaveform
     """
-
-    def func(_t, _):
-        """ The constant function """
-        return 0.
-
-    wave = QWaveform(f=func, t0=t0, t=0.0, args=None, freq=0.0, phase=phase, phase0=0.0,
+    args = {
+        "a": 0.
+    }
+    wave = QWaveform(f="square", t0=t0, t=0.0, args=args, freq=0.0, phase=phase, phase0=0.0,
                      flag=QWAVEFORM_FLAG_PHASE_SHIFT)
     wave.name = "virtualZ"
     return wave
@@ -1846,13 +2056,12 @@ def sin(t: Union[int, float], a: float, b: float, c: float, t0: Union[int, float
     :param phase0: pulse phase shift (will not accumulate during the entire pulse execution)
     :return: returned sin QWaveform
     """
-
-    def func(_t, args):
-        """ The sin function """
-        _a, _b, _c = args
-        return _a * math.sin(_b * _t + _c)
-
-    wave = QWaveform(f=func, t0=t0, t=t, args=(a, b, c), freq=freq, phase=phase, phase0=phase0)
+    args = {
+        "a": a,
+        "b": b,
+        "c": c
+    }
+    wave = QWaveform(f='sin', t0=t0, t=t, args=args, freq=freq, phase=phase, phase0=phase0)
     wave.name = "sin"
     return wave
 
@@ -1890,21 +2099,13 @@ def quasiSquareErf(t: Union[int, float], a: float, l: float, r: float, sk: float
     :param phase0: pulse phase shift (will not accumulate during the entire pulse execution)
     :return: returned quasi square QWaveform object
     """
-
-    def func(_t, args):
-        """ The quasi square error function """
-        _a, _l, _r, _sk = args
-        if _sk is None:
-            _sk = _a * 0.3
-        if _a == 0.0:
-            return 0.0
-        t1i = _l
-        t2i = _r
-        pulse = 0.25 * _a * (1 + erf(sqrt(pi) * _sk / _a * (_t - t1i)))
-        pulse = pulse * (1 - erf(sqrt(pi) * _sk / _a * (_t - t2i)))
-        return pulse
-
-    wave = QWaveform(f=func, t0=t0, t=t, args=(a, l, r, sk), freq=freq, phase=phase, phase0=phase0)
+    args = {
+        "a": a,
+        "l": l,
+        "r": r,
+        "sk": sk
+    }
+    wave = QWaveform(f="quasi_square_erf", t0=t0, t=t, args=args, freq=freq, phase=phase, phase0=phase0)
     wave.name = "quasi_square_erf"
     return wave
 
@@ -1924,17 +2125,13 @@ def dragY1(t: Union[int, float], a: float, tau: float, sigma: float, t0: Union[i
     :param phase0: pulse phase shift (will not accumulate during the entire pulse execution)
     :return: returned QWaveform object with DRAG
     """
-
-    def func(_t, args):
-        """ The DRAG function """
-        _a, _tau, _sigma = args
-        if sigma == 0:
-            return 0
-        pulse = - _a * (_t - _tau) / (_sigma ** 2) * exp(- ((_t - _tau) / _sigma) ** 2 / 2)
-        return pulse
-
-    wave = QWaveform(f=func, t0=t0, t=t, args=(a, tau, sigma), freq=freq, phase=phase, phase0=phase0)
-    wave.name = "drag_y1"
+    args = {
+        "a": a,
+        "tau": tau,
+        "sigma": sigma
+    }
+    wave = QWaveform(f="drag", t0=t0, t=t, args=args, freq=freq, phase=phase, phase0=phase0)
+    wave.name = "drag"
     return wave
 
 
@@ -1942,32 +2139,19 @@ def mix(xWave: Optional[QWaveform], yWave: Optional[QWaveform], t0: Union[int, f
     """
     Return the mix of two QWaveform instances.
 
-    :param xWave: the first QWaveform instances
-    :param yWave: the second QWaveform instances
+    :param xWave: the first QWaveform instance
+    :param yWave: the second QWaveform instance
     :param t0:
     :return: returned mixed QWaveform
     """
-
-    def func(_t, args):
-        """ The mix function """
-        _xWave, _yWave = args
-        _xVal = 0. if _xWave is None else _xWave(_t)
-        _yVal = 0. if _yWave is None else _yWave(_t)
-        # Calculate amplitude
-        amp = math.sqrt(_xVal ** 2 + _yVal ** 2)
-        # Calculate phase
-        if abs(_xVal) > 1e-10 and abs(_yVal) > 1e-10:
-            varPhase = atan(_yVal / _xVal)
-        elif abs(_xVal) < 1e-10 < abs(_yVal):
-            varPhase = sign(_yVal) * pi / 2
-        else:
-            varPhase = 0.
-        return amp, varPhase
-
     xDuration = 0. if xWave is None else xWave.t0 + xWave.t
     yDuration = 0. if yWave is None else yWave.t0 + yWave.t
     tDuration = max(xDuration, yDuration)
-    wave = QWaveform(f=func, t0=t0, t=tDuration, args=(xWave, yWave), flag=QWAVEFORM_FLAG_MIX_WAVE)
+    args = {
+        "xWave": xWave,
+        "yWave": yWave,
+    }
+    wave = QWaveform(f="mix", t0=t0, t=tDuration, args=args, flag=QWAVEFORM_FLAG_MIX_WAVE)
     xName = "" if xWave is None else xWave.name
     yName = "" if yWave is None else yWave.name
     wave.name = "mix-{}-{}".format(xName, yName)

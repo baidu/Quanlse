@@ -28,10 +28,9 @@ from Quanlse.QWaveform import QJob, QJobList
 from Quanlse.QOperator import driveX
 from Quanlse.QWaveform import gaussian
 from Quanlse.Utils.Functions import basis, expect, dagger
-from Quanlse.Simulator import PulseModel
+from Quanlse.Superconduct.Simulator import PulseModel
 from Quanlse import Define
 from Quanlse.remoteSimulator import remoteSimulatorRunHamiltonian as runHamiltonian
-
 
 
 # Your token:

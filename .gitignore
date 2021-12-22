@@ -50,7 +50,7 @@ coverage.xml
 *.mo
 
 # Sphinx documentation
-/Doc/build/
+/Doc
 
 # Study test
 /study/
@@ -64,3 +64,4 @@ Output/
 /Doc/build
 
 Tutorial/EN/.ipynb_checkpoints/
+Tutorial/CN/.ipynb_checkpoints/

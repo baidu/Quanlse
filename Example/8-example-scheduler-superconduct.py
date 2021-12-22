@@ -20,12 +20,10 @@ Example: Quanlse Scheduler
 Please visit https://quanlse.baidu.com/#/doc/tutorial-scheduler for more details about this example.
 """
 
-from Quanlse.QOperation.FixedGate import H, CZ, X, Y
-from Quanlse.QOperation.RotationGate import RX, RY
+from Quanlse.QOperation.FixedGate import H, CZ
 from Quanlse.Utils.Functions import basis
-from Quanlse.Simulator.PulseSim2Q import pulseSim2Q
-from Quanlse.Scheduler.Superconduct.PipelineCenterAligned import centerAligned
-from Quanlse.remoteSimulator import remoteSimulatorRunHamiltonian as runHamiltonian
+from Quanlse.Superconduct.Simulator.PulseSim2Q import pulseSim2Q
+from Quanlse.Superconduct.SchedulerSupport.PipelineCenterAligned import centerAligned
 
 from Quanlse import Define
 from Quanlse.Utils.Functions import computationalBasisList

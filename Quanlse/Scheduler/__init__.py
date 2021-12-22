@@ -32,18 +32,18 @@ Quanlse's Scheduler has the following benefits:
 
 At present, Quanlse Scheduler support two different quantum platforms:
 
-**1. Superconduct** (:doc:`Quanlse.Scheduler.Superconduct`)
+**1. Superconduct** (:doc:`Quanlse.Superconduct.SchedulerSupport`)
 
-  - We provide :doc:`Quanlse.Scheduler.Superconduct.DefaultPulseGenerator` using :doc:`remoteOptimizer`
+  - We provide :doc:`Quanlse.Superconduct.SchedulerSupport.GeneratorCloud` using :doc:`remoteOptimizer`
     to users to generate optimal pulses by accessing the Quanlse Cloud Service.
 
-  - We provide :doc:`Quanlse.Scheduler.Superconduct.RBPulseGenerator` using :doc:`remoteOptimizer` especially
+  - We provide :doc:`Quanlse.Superconduct.SchedulerSupport.RBPulseGenerator` using :doc:`remoteOptimizer` especially
     for the :doc:`Quanlse.Utils.RandomizedBenchmarking` functions.
 
-  - We provide :doc:`Quanlse.Scheduler.Superconduct.DefaultPipeline` to users to support the fundamental scheduling
-    strategy.
+  - We provide :doc:`Quanlse.Superconduct.SchedulerSupport.PipelineCenterAligned` to users to support the fundamental
+    scheduling strategy.
 
-**2. Ion Trap** (:doc:`Quanlse.Scheduler.Ion`)
+**2. Ion Trap** (:doc:`Quanlse.TrappedIon.SchedulerSupport`)
 
 For more details, please visit https://quanlse.baidu.com/#/doc/tutorial-scheduler.
 """
@@ -70,28 +70,25 @@ class Scheduler:
 
     :param dt: AWG sampling time
     :param ham: the QHamiltonian object.
-    :param pulseGenerator: the pulseGenerator object.
+    :param generator: the pulseGenerator object.
     :param subSysNum: size of the subsystem
     :param sysLevel: the energy levels of the system (support different levels for different qubits)
     :param savePulse: save the pulse in cache
     """
 
     def __init__(self, dt: float = None, ham: QHam = None, generator: SchedulerPulseGenerator = None,
-                 pipeline: SchedulerPipeline = None, subSysNum: int = None, sysLevel: int = None,
-                 savePulse: bool = True):
+                 pipeline: SchedulerPipeline = None, subSysNum: int = None,
+                 sysLevel: Union[int, List[int], None] = None, savePulse: bool = True):
         """
         Initialization
         """
 
-        if sysLevel is not None:
-            self._sysLevel = sysLevel  # type: Union[int, List[int]]
-        else:
-            self._sysLevel = 2  # type: Union[int, List[int]]
+        self._sysLevel = sysLevel  # type: Union[int, List[int], None]
 
         if subSysNum is not None:
-            self._subSysNum = subSysNum  # type: int
+            self._subSysNum = subSysNum  # type: Optional[int]
         else:
-            self._subSysNum = 1  # type: int
+            self._subSysNum = None  # type: Optional[int]
 
         # The quantum register
         self.Q = QRegPool(self)  # type: QRegPool
@@ -106,7 +103,7 @@ class Scheduler:
         self._dt = dt  # type: float
 
         # The vault for store the pulses of the fixed gates
-        self._pulseCache = []  # type: List[GatePulsePair]
+        self._gatePulsePairs = []  # type: List[GatePulsePair]
 
         # The time padding of the pulses of adjacent quantum gates
         self.padding = 0.0  # type: float
@@ -132,10 +129,11 @@ class Scheduler:
         self._savePulse = savePulse  # type: bool
 
         # Add the pipeline
+        self._pipeline = None  # type: Optional[SchedulerPipeline]
         if pipeline is not None:
-            self._pipeline = pipeline  # type: SchedulerPipeline
+            self.pipeline = pipeline  # type: SchedulerPipeline
         else:
-            self._pipeline = SchedulerPipeline()  # type: SchedulerPipeline
+            self.pipeline = SchedulerPipeline()  # type: SchedulerPipeline
 
         # The QJob object, this is not necessary
         self._initializeQJob(dt, subSysNum, sysLevel)
@@ -162,6 +160,7 @@ class Scheduler:
         if self._pipeline is not None:
             del self._pipeline
         self._pipeline = pipeline
+        self._pipeline.scheduler = self
 
     @property
     def savePulse(self) -> bool:
@@ -214,25 +213,25 @@ class Scheduler:
         self._initializeQJob(self._dt, self._subSysNum, self._sysLevel)
 
     @property
-    def pulseCache(self) -> List[GatePulsePair]:
-        """
-        Pulse cache
-        """
-        return self._pulseCache
-
-    @property
     def pulseGenerator(self) -> Optional[SchedulerPulseGenerator]:
         """
         Pulse cache
         """
         return self._pulseGenerator
 
-    @pulseCache.setter
-    def pulseCache(self, obj: List[GatePulsePair]):
+    @property
+    def gatePulsePairs(self) -> List[GatePulsePair]:
+        """
+        Pulse cache
+        """
+        return self._gatePulsePairs
+
+    @gatePulsePairs.setter
+    def gatePulsePairs(self, obj: List[GatePulsePair]):
         """
         Pulse cache setter
         """
-        self._pulseCache = copy.deepcopy(obj)
+        self._gatePulsePairs = copy.deepcopy(obj)
 
     @property
     def ham(self) -> Optional[QHam]:
@@ -277,56 +276,82 @@ class Scheduler:
             else:
                 self._subSysNum = subSysNum
 
-            if sysLevel is None:
-                raise Error.ArgumentError("You must input sysLevel when ham is None!")
-            else:
-                self._sys = sysLevel
+            self._sys = sysLevel
             self._job = QJob(self._subSysNum, self._sysLevel, dt)
         else:
             self._tempCtrlOperators = copy.deepcopy(self._ham.job.ctrlOperators)
             self._ham.job = QJob(self.ham.subSysNum, self.ham.sysLevel, self.ham.dt)
             self._ham.job.ctrlOperators = copy.deepcopy(self._tempCtrlOperators)
 
-    def setGatePulsePair(self, *args) -> None:
+    def appendGatePulsePair(self, pair: GatePulsePair):
         """
-        Add a GatePulsePair instance to the pulse cache.
+        Append a GatePulsePair to scheduler.
 
-        :return: None
+        :param pair: the GatePulsePair instance
         """
-        if isinstance(args, GatePulsePair):
-            # User input a GatePulsePair object directly
-            foundGate = self.findGatePulsePair(args.cirLine.data)
-            if foundGate is not None:
-                foundGate.pulses = copy.deepcopy(args.pulses)
+        if self.subSysNum is not None:
+            if isinstance(pair.qubits, int):
+                if pair.qubits >= self.subSysNum:
+                    raise Error.ArgumentError(f"The index of pair's qubits ({pair.qubits}) exceeds the scheduler's "
+                                              f"subSysNum ({self.subSysNum}).")
             else:
-                pair = copy.deepcopy(args)
-                self._pulseCache.append(pair)
-        elif isinstance(args, tuple):
-            # User input a gate and a QJob
-            if isinstance(args[0].data, (FixedGateOP, RotationGateOP)) and \
-                    (isinstance(args[1], QJob) or args[1] is None):
-                foundGate = self.findGatePulsePair(args[0])
-                if foundGate is not None:
-                    foundGate.pulses = copy.deepcopy(args[1])
-                else:
-                    pair = GatePulsePair(args[0], args[1])
-                    self._pulseCache.append(pair)
+                if max(pair.qubits) >= self.subSysNum:
+                    raise Error.ArgumentError(f"The index of pair's qubits ({pair.qubits}) exceeds the scheduler's "
+                                              f"subSysNum ({self.subSysNum}).")
+        _pair = copy.deepcopy(pair)
+        if _pair.job is None:
+            if self._pulseGenerator is not None:
+                cirLine = CircuitLine(_pair.gate, [_pair.qubits] if isinstance(_pair.qubits, int) else _pair.qubits)
+                job = self._pulseGenerator(cirLine, self)
+                _pair.job = job
             else:
-                raise Error.ArgumentError(f"Wrong argument, please input a GatePulsePair "
-                                          f"or a pair of FixedGate and QJob objects. But you input "
-                                          f"a pair of {type(args[0])} with {type(args[1])}.")
+                _pair.job = None
 
-    def findGatePulsePair(self, cirLine: CircuitLine) -> Union[GatePulsePair, None]:
-        """
-        Find the pulse of a fixed gate in pulse cache.
+        self.gatePulsePairs.append(_pair)
 
-        :param cirLine: CircuitLine object to be searched in pulse cache
-        :return: the returned GatePulsePair
+    def addGatePulsePair(self, gate: Union[FixedGateOP, RotationGateOP], qubits: Union[int, List[int]],
+                         t0: float = None, job: QJob = None) -> None:
         """
-        for pair in self._pulseCache:
-            if GatePulsePair(cirLine) == pair:
-                return pair
-        return None
+        Add GatePulsePair to scheduler.
+
+        :param gate: the FixedGateOP or RotationGateOP object.
+        :param qubits: indicates the subsystem of the gate performing on
+        :param job: the QJob object
+        :param t0: the start time
+        """
+        if self.subSysNum is not None:
+            if isinstance(qubits, int):
+                if qubits >= self.subSysNum:
+                    raise Error.ArgumentError(f"The index of qubits ({qubits}) exceeds the scheduler's "
+                                              f"subSysNum ({self.subSysNum}).")
+            else:
+                if max(qubits) >= self.subSysNum:
+                    raise Error.ArgumentError(f"The index of qubits ({qubits}) exceeds the scheduler's "
+                                              f"subSysNum ({self.subSysNum}).")
+        if len(self._circuit) > 0:
+            raise Error.ArgumentError("The logical circuit is not None, please clear the circuit and then add " 
+                                      "the gate pulse pair.")
+        self._addGatePulsePair(gate, qubits, t0, job)
+
+    def _addGatePulsePair(self, gate: Union[FixedGateOP, RotationGateOP], qubits: Union[int, List[int]],
+                          t0: float = None, job: QJob = None) -> None:
+        """
+        Add GatePulsePair to scheduler.
+
+        :param gate: the FixedGateOP or RotationGateOP object.
+        :param qubits: indicates the subsystem of the gate performing on
+        :param job: the QJob object
+        :param t0: the start time
+        """
+        if job is None:
+            if self._pulseGenerator is not None:
+                cirLine = CircuitLine(gate, [qubits] if isinstance(qubits, int) else qubits)
+                job = self._pulseGenerator(cirLine, self)
+            else:
+                job = None
+        # Add the gate pulse pair into the list
+        pair = GatePulsePair(gate, qubits, t0, job)
+        self._gatePulsePairs.append(pair)
 
     def getMatrix(self) -> numpy.ndarray:
         """
@@ -368,17 +393,6 @@ class Scheduler:
         elif self._job is not None:
             self._job.plot()
 
-    def plotIon(self) -> None:
-        """
-        Plot the ion pulses.
-
-        :return: None
-        """
-        if self._ham is not None:
-            self._ham.job.plotIon()
-        elif self._job is not None:
-            self._job.plotIon()
-
     def clearCircuit(self) -> None:
         """
         Clear all circuit.
@@ -397,7 +411,15 @@ class Scheduler:
 
         :return: None
         """
-        self._pulseCache = []
+        self.clearGatePulsePair()
+
+    def clearGatePulsePair(self) -> None:
+        """
+        Clear all gatePulsePairs.
+
+        :return: None
+        """
+        self._gatePulsePairs = []
 
     def schedule(self) -> QJob:
         """
@@ -405,31 +427,37 @@ class Scheduler:
 
         :return: a scheduled QJob object
         """
-        # Step 1: generate pulses for the GatePulsePair instances
+        # Step 1: Generate pulses for the GatePulsePair instances
         # When self._ham is None, it means that the Scheduler does not need to
         # generate pulses for the CircuitLine instances.
         if self._pulseGenerator is not None:
-            if self.savePulse:
-                for cirLine in self.circuit:
-                    foundPair = self.findGatePulsePair(cirLine)
-                    if foundPair is None or foundPair.pulses is None:
-                        pulseJob = self._pulseGenerator(cirLine, self)
-                        self.setGatePulsePair(cirLine, pulseJob)
+            _lastGatePulsePairDuration = 0.
+            self.clearGatePulsePair()
+            for cirLine in self.circuit:
+                self._addGatePulsePair(cirLine.data, cirLine.qRegIndexList, _lastGatePulsePairDuration)
+                _lastGatePulsePairDuration += self.gatePulsePairs[-1].t
         else:
             raise Error.ArgumentError("No pulseGenerator is set, hence cannot generate pulse.")
 
-        # Obtain a copy of job
-        _tmpJob = copy.deepcopy(self._job) if self._ham is None else copy.deepcopy(self._ham.job)
+        # Step 2: Run the scheduling process
+        self.pipeline()
 
-        # Step 2: Assemble all the pulses according to self.circuit
-        _tmpJob.clearWaves()
-        for cirLine in self._circuit:
-            if self.savePulse:
-                _pulses = self.findGatePulsePair(cirLine).pulses
-            else:
-                _pulses = self._pulseGenerator(cirLine, self)
-            _tmpJob.appendJob(_pulses)
+        # Step 3: Transform the GatePulsePair list into a QJob instance
+        _resultJob = copy.deepcopy(self._job) if self._ham is None else copy.deepcopy(self._ham.job)
+        _resultJob.clearWaves()
+        for _pair in self.gatePulsePairs:
+            _t0 = _pair.t0
+            # Add waves
+            for _waveKeys in _pair.job.waves.keys():
+                for _wave in _pair.job.waves[_waveKeys]:
+                    _wave.t0 += _t0
+                    if _waveKeys not in _resultJob.waves.keys():
+                        _resultJob.waves[_waveKeys] = []
+                    _resultJob.waves[_waveKeys].append(_wave)
+            # Add other data
+            for _opKey in _pair.job.ctrlOperators.keys():
+                _resultJob.ctrlOperators[_opKey] = _pair.job.ctrlOperators[_opKey]
+            for _opKey in _pair.job.LO.keys():
+                _resultJob.LO[_opKey] = _pair.job.LO[_opKey]
 
-        # Step 3: Run the scheduling process
-        _tmpJob = self.pipeline(job=_tmpJob, scheduler=self)
-        return _tmpJob
+        return _resultJob
